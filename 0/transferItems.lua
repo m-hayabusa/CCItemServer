@@ -139,6 +139,15 @@ function showTransferInterface(inventories)
 
         print("Source Contents:")
         if sourceInv.items > 0 then
+            -- 0番目に「すべてのアイテム」を表示
+            local x, y = term.getCursorPos()
+            transferAllPos = {
+                head = y,
+                tail = y
+            }
+            print(" 0. [Transfer All Items] (" .. sourceInv.items .. " items)")
+
+            -- 個別アイテムの表示
             local count = 0
             for slot, item in pairs(sourceInv.contents) do
                 count = count + 1
@@ -155,7 +164,7 @@ function showTransferInterface(inventories)
 
             VIEW_MODE = "items"
 
-            print("\nEnter slot number to transfer, or 'a' to transfer all items, or 'q' to quit: ")
+            print("\nEnter slot number (0-" .. math.min(count, 9) .. ") to transfer, or 'q' to quit: ")
         else
             print("Source inventory is empty")
             sleep(1)
@@ -226,8 +235,8 @@ function handleKeyboardInput(inventories)
             return
         end
 
-        -- 'a' key to transfer all items
-        if input == "a" or input == "all" then
+        -- '0' key to transfer all items
+        if input == "0" or input == "a" or input == "all" then
             print("\nTransferring all items...")
             local transferCount = 0
 
@@ -247,7 +256,7 @@ function handleKeyboardInput(inventories)
         -- Number keys 1-9 to transfer specific items
         local numKey = tonumber(input)
 
-        if numKey then
+        if numKey and numKey >= 1 and numKey <= 9 then
             -- Find the nth item in the inventory
             local count = 0
             for slot, item in pairs(sourceInv.contents) do
@@ -312,7 +321,25 @@ function handleMouseClick(inventories, button, x, y)
         if selectedSourceIndex and selectedDestIndex then
             local sourceInv = inventories[selectedSourceIndex]
 
-            -- アイテムリストの位置を特定
+            -- 「すべてのアイテム」行がクリックされたかチェック
+            if transferAllPos and y == transferAllPos.head then
+                print("\nTransferring all items...")
+                local transferCount = 0
+
+                for slot, item in pairs(sourceInv.contents) do
+                    local success, message = transferItems(sourceInv, inventories[selectedDestIndex], slot, item.count)
+                    if success then
+                        transferCount = transferCount + 1
+                        print(message)
+                    end
+                end
+
+                print("Transferred items from " .. transferCount .. " slots")
+                sleep(2)
+                return true
+            end
+
+            -- 個別アイテムリストの位置を特定
             local count = 0
             for slot, item in pairs(sourceInv.contents) do
                 count = count + 1
@@ -439,8 +466,8 @@ function main()
                         end
                     end
                 elseif VIEW_MODE == "items" then
-                    if param == keys.a then
-                        -- Aキーですべてのアイテムを転送
+                    if param == keys.a or param == keys.zero then
+                        -- 0キーまたはAキーですべてのアイテムを転送
                         local sourceInv = inventories[selectedSourceIndex]
                         print("\nTransferring all items...")
                         local transferCount = 0
