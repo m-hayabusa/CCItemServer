@@ -156,7 +156,10 @@ function printInventories(limit)
         }
         local x, y = term.getCursorPos()
         inventory.pos.head = y
-        print(i .. ". " .. inventory.name)
+
+        -- 表示名を使用（存在する場合）
+        local displayName = inventory.displayName or inventory.name
+        print(i .. ". " .. displayName .. " (" .. inventory.name .. ")")
 
         if inventory.items > 0 then
             local count = 0
@@ -190,9 +193,18 @@ function showTransferInterface()
 
     print("-----------------------------")
 
-    -- Display source selection
-    print("From: " .. (selectedSourceIndex and inventories[selectedSourceIndex].name or "Not selected (L-Click)"))
-    print("To:   " .. (selectedDestIndex and inventories[selectedDestIndex].name or "Not selected (R-Click)"))
+    -- 表示名を使用（存在する場合）
+    local sourceDisplayName = selectedSourceIndex and
+                                  (inventories[selectedSourceIndex].displayName or inventories[selectedSourceIndex].name) or
+                                  "Not selected (L-Click)"
+
+    local destDisplayName = selectedDestIndex and
+                                (inventories[selectedDestIndex].displayName or inventories[selectedDestIndex].name) or
+                                "Not selected (R-Click)"
+
+    -- Display source selection with display names
+    print("From: " .. sourceDisplayName)
+    print("To:   " .. destDisplayName)
     print("-----------------------------")
 
     -- If both source and destination are selected
@@ -285,6 +297,42 @@ function showTransferInterface()
     end
 end
 
+-- インベントリ名を編集する機能を追加
+function editInventoryName(inventoryIndex)
+    local inventory = inventories[inventoryIndex]
+    if not inventory then
+        return false
+    end
+
+    clearScreen()
+    print("Edit Inventory Name")
+    print("-----------------------------")
+    print("Current name: " .. (inventory.displayName or inventory.name))
+    print("ID: " .. inventory.name)
+    print("-----------------------------")
+    write("Enter new display name: ")
+
+    local newName = read()
+    if newName and newName ~= "" then
+        -- サーバーに名前変更リクエストを送信
+        local response = sendRequest("SET_INVENTORY_NAME", {
+            inventoryId = inventory.name,
+            displayName = newName
+        })
+
+        if response.success then
+            inventory.displayName = newName
+            print("Name updated successfully!")
+        else
+            print("Failed to update name: " .. response.message)
+        end
+        sleep(1)
+        return true
+    end
+
+    return false
+end
+
 -- Function to handle key events
 function handleKeyEvents(key)
     -- 共通のキー処理
@@ -309,7 +357,7 @@ function handleKeyEvents(key)
             local num = tonumber(input)
             if num and num >= 1 and num <= #inventories then
                 selectedSourceIndex = num
-                print("Selected source: " .. inventories[num].name)
+                print("Selected source: " .. (inventories[num].displayName or inventories[num].name))
             end
             return true
         elseif key == keys.d then
@@ -320,7 +368,17 @@ function handleKeyEvents(key)
             local num = tonumber(input)
             if num and num >= 1 and num <= #inventories then
                 selectedDestIndex = num
-                print("Selected destination: " .. inventories[num].name)
+                print("Selected destination: " .. (inventories[num].displayName or inventories[num].name))
+            end
+            return true
+        elseif key == keys.e then
+            -- Eキーでインベントリ名編集モード
+            os.pullEvent("key_up") -- キーが離されるのを待つ
+            write("\nEnter inventory number to edit name: ")
+            local input = read()
+            local num = tonumber(input)
+            if num and num >= 1 and num <= #inventories then
+                editInventoryName(num)
             end
             return true
         elseif key >= keys.one and key <= keys.nine then
@@ -329,10 +387,10 @@ function handleKeyEvents(key)
             if num >= 1 and num <= #inventories then
                 if selectedSourceIndex == nil then
                     selectedSourceIndex = num
-                    print("Selected source: " .. inventories[num].name)
+                    print("Selected source: " .. (inventories[num].displayName or inventories[num].name))
                 elseif selectedDestIndex == nil then
                     selectedDestIndex = num
-                    print("Selected destination: " .. inventories[num].name)
+                    print("Selected destination: " .. (inventories[num].displayName or inventories[num].name))
                 end
 
                 -- 両方選択されたらアイテム表示モードに切り替え
@@ -412,11 +470,14 @@ function handleMouseClick(button, x, y)
             if inventory.pos.head <= y and y <= inventory.pos.tail then
                 if button == 1 then -- 左クリック = source
                     selectedSourceIndex = i
-                    print("Selected source: " .. inventory.name)
+                    print("Selected source: " .. (inventory.displayName or inventory.name))
                     return true
                 elseif button == 2 then -- 右クリック = destination
                     selectedDestIndex = i
-                    print("Selected destination: " .. inventory.name)
+                    print("Selected destination: " .. (inventory.displayName or inventory.name))
+                    return true
+                elseif button == 3 then -- 中クリック = 名前編集
+                    editInventoryName(i)
                     return true
                 end
             end
@@ -486,6 +547,23 @@ function handleMouseScroll(direction)
     return false
 end
 
+-- メインインターフェースに操作ガイドを追加
+function showMainInterface()
+    clearScreen()
+
+    -- ヘッダー情報とガイド表示
+    print("=== Item Management System ===")
+    print("Controls:")
+    print("- Left-click   / S: Select source inventory")
+    print("- Right-click  / D: Select destination inventory")
+    print("- Middle-click / E: Edit inventory name")
+    print("-                Q: Back")
+    print("==============================")
+
+    -- インベントリリスト表示
+    printInventories()
+end
+
 -- Main function
 function main()
     -- Check if server is available
@@ -509,7 +587,12 @@ function main()
 
     -- Main loop
     while true do
-        showTransferInterface()
+        -- メインインターフェース表示に変更
+        if VIEW_MODE == "inventories" and not selectedSourceIndex and not selectedDestIndex then
+            showMainInterface()
+        else
+            showTransferInterface()
+        end
 
         local timer = os.startTimer(30) -- 30秒ごとに画面更新
         local shouldRefresh = false

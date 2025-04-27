@@ -5,8 +5,10 @@ local inventoryUtils = require("lib.inventoryUtils")
 -- Configuration
 local SERVER_CHANNEL = 137 -- Communication channel
 local REFRESH_INTERVAL = 30 -- Inventory refresh interval in seconds
+local INVENTORY_NAMES_FILE = "inventory_names.json" -- JSONファイルのパス
 local inventoryCache = {} -- Cache of inventory information
 local lastRefreshTime = 0 -- Time of last inventory refresh
+local inventoryNames = {} -- インベントリIDと表示名のマッピング
 
 -- Initialize modem
 local modem = peripheral.find("modem")
@@ -17,6 +19,70 @@ end
 
 modem.open(SERVER_CHANNEL)
 print("Server started on channel " .. SERVER_CHANNEL)
+
+-- インベントリ名マッピングをJSONファイルから読み込む
+function loadInventoryNames()
+    if fs.exists(INVENTORY_NAMES_FILE) then
+        local file = fs.open(INVENTORY_NAMES_FILE, "r")
+        local content = file.readAll()
+        file.close()
+
+        local success, result = pcall(textutils.unserializeJSON, content)
+        if success then
+            print()
+            inventoryNames = result
+            print("Loaded inventory name mappings\n" .. textutils.serialize(result))
+        else
+            print("Error loading inventory names: " .. result)
+            inventoryNames = {}
+        end
+    else
+        print("No inventory name mappings found, using default names")
+        inventoryNames = {}
+    end
+end
+
+-- インベントリ名マッピングをJSONファイルに保存する
+function saveInventoryNames()
+    local file = fs.open(INVENTORY_NAMES_FILE, "w")
+    file.write(textutils.serializeJSON(inventoryNames))
+    file.close()
+    print("Saved inventory name mappings")
+end
+
+-- インベントリIDから表示名を取得する（なければデフォルト名を生成）
+function getDisplayName(inventoryId)
+    if inventoryNames[inventoryId] then
+        return inventoryNames[inventoryId]
+    end
+
+    -- デフォルト名を生成（例：chest_1, barrel_2など）
+    local baseType = "container"
+    if inventoryId:find("chest") then
+        baseType = "chest"
+    elseif inventoryId:find("barrel") then
+        baseType = "barrel"
+    elseif inventoryId:find("shulker") then
+        baseType = "shulker"
+    end
+
+    -- 同じタイプの数をカウント
+    local count = 1
+    for id, _ in pairs(inventoryNames) do
+        if id:find(baseType) then
+            count = count + 1
+        end
+    end
+
+    local displayName = baseType .. "_" .. count
+    inventoryNames[inventoryId] = displayName
+    saveInventoryNames()
+
+    return displayName
+end
+
+-- 起動時にインベントリ名マッピングを読み込む
+loadInventoryNames()
 
 -- Function to refresh inventory data
 function refreshInventories(forceRefresh)
@@ -66,6 +132,7 @@ function handleRequest(sender, message)
         for name, details in pairs(inventories) do
             table.insert(inventoryList, {
                 name = name,
+                displayName = getDisplayName(name), -- 表示名を追加
                 type = details.type,
                 size = details.size,
                 items = details.items
@@ -100,6 +167,7 @@ function handleRequest(sender, message)
                 response = {
                     success = true,
                     data = itemList,
+                    displayName = getDisplayName(inventoryName), -- 表示名を追加
                     message = "Retrieved " .. #itemList .. " items"
                 }
             end
@@ -176,6 +244,25 @@ function handleRequest(sender, message)
                 -- Refresh cache after transfer
                 refreshInventories(true)
             end
+        end
+    elseif requestType == "SET_INVENTORY_NAME" then
+        -- インベントリの表示名を設定するリクエストを追加
+        local inventoryId = message.inventoryId
+        local displayName = message.displayName
+
+        if not inventoryId or not displayName then
+            response = {
+                success = false,
+                message = "Missing inventory ID or display name"
+            }
+        else
+            inventoryNames[inventoryId] = displayName
+            saveInventoryNames()
+
+            response = {
+                success = true,
+                message = "Display name set for " .. inventoryId
+            }
         end
     end
 
