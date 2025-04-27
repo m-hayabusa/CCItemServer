@@ -124,7 +124,14 @@ end
 -- Function to display transfer interface
 function showTransferInterface(inventories)
     clearScreen()
-    print("Item Transfer")
+
+    local x, y = term.getCursorPos()
+    backButtonPos = {
+        head = y,
+        tail = y
+    }
+    print("[Back to Inventory List (q)]")
+
     print("-----------------------------")
 
     -- Display source selection
@@ -297,7 +304,6 @@ end
 
 -- Function to handle mouse clicks for inventory selection
 function handleMouseClick(inventories, button, x, y)
-
     -- VIEW_MODEがinventoriesの場合（インベントリリスト表示時）
     if VIEW_MODE == "inventories" then
         -- インベントリリストの位置を特定
@@ -317,6 +323,13 @@ function handleMouseClick(inventories, button, x, y)
         end
         -- VIEW_MODEがitemsの場合（アイテムリスト表示時）
     elseif VIEW_MODE == "items" then
+        -- 戻るボタンがクリックされたかチェック
+        if backButtonPos and y == backButtonPos.head then
+            selectedSourceIndex = nil
+            selectedDestIndex = nil
+            VIEW_MODE = "inventories"
+            return true
+        end
         -- 両方のインベントリが選択されている場合のみ
         if selectedSourceIndex and selectedDestIndex then
             local sourceInv = inventories[selectedSourceIndex]
