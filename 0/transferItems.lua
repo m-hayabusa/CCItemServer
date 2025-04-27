@@ -124,7 +124,7 @@ end
 function showAvailableInventories(inventories)
     print("Available inventories:")
     for i, inventory in ipairs(inventories) do
-        print(i .. ". " .. inventory.name .. " (" .. inventory.type .. ")")
+        print(" " .. i .. ". " .. inventory.name .. " (" .. inventory.items .. " / " .. inventory.size .. " slots)")
     end
 end
 
@@ -155,10 +155,10 @@ function showTransferInterface(inventories)
                 end -- Limit display to 9 items for keyboard selection
             end
 
-            print("\nEnter slot number to transfer, or 'a' to transfer all items, or 'q' to quit:")
+            print("\nEnter slot number to transfer, or 'a' to transfer all items, or 'q' to quit: ")
         else
             print("Source inventory is empty")
-            sleep(2)
+            sleep(1)
             selectedSourceIndex = nil
             selectedDestIndex = nil
             showTransferInterface(inventories)
@@ -199,7 +199,7 @@ function handleTransferInput(inventories)
             end
 
             print("Transferred items from " .. transferCount .. " slots")
-            sleep(2) -- Pause to show results
+            sleep(2)
             return
         end
 
@@ -223,7 +223,7 @@ function handleTransferInput(inventories)
     else
         local target = selectedSourceIndex == nil and "source" or selectedDestIndex == nil and "destination" or nil
         if target then
-            write("\nEnter " .. target .. " inventory number: ")
+            write("\nEnter " .. target .. " number, or 'q' to quit\n> ")
             local input = read()
 
             if input == "" or input == "q" then
@@ -253,10 +253,30 @@ function redirectToMonitor()
     monitor.setTextScale(0.5)
 end
 
+function printInventories(inventories, limit)
+    for i, inventory in ipairs(inventories) do
+        print(i .. ". " .. inventory.name)
+
+        if inventory.items > 0 then
+            local count = 0
+            for slot, item in pairs(inventory.contents) do
+                count = count + 1
+                if limit and count <= limit then -- Show only first 5 items to avoid clutter
+                    print("     #" .. count .. ": \t" .. item.count .. " * " .. (item.displayName or item.name))
+                end
+            end
+
+            if limit and count > limit then
+                print("     ... and " .. (count - limit) .. " more items")
+            end
+        end
+
+        print("")
+    end
+end
+
 -- Main function
 function main()
-    -- redirectToMonitor()
-
     print("Scanning for inventories via modem...")
 
     -- Check if a modem is present
@@ -290,8 +310,8 @@ function main()
 
         clearScreen()
         if VIEW_MODE == "list" then
-            print("Inventory Scanner")
-            print("Press Ctrl+T to exit, T to enter transfer mode")
+            print("Inventory Viewer")
+            print("T: enter transfer mode")
             print("-----------------------------")
 
             -- Display inventory information
@@ -301,26 +321,7 @@ function main()
                 print("Found " .. #inventories .. " inventories:")
                 print("")
 
-                for i, inventory in ipairs(inventories) do
-                    print(i .. ". " .. inventory.name)
-
-                    if inventory.items > 0 then
-                        local count = 0
-                        for slot, item in pairs(inventory.contents) do
-                            count = count + 1
-                            if count <= 5 then -- Show only first 5 items to avoid clutter
-                                print("     #" .. slot .. ": \t" .. item.count .. " * " ..
-                                          (item.displayName or item.name))
-                            end
-                        end
-
-                        if count > 5 then
-                            print("     ... and " .. (count - 5) .. " more items")
-                        end
-                    end
-
-                    print("")
-                end
+                printInventories(inventories, 5)
             end
             -- Check for 'T' key press to switch to transfer mode
             local timer = os.startTimer(REFRESH_INTERVAL)
