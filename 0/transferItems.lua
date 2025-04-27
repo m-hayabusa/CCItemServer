@@ -218,22 +218,71 @@ end
 function transferAllItems(sourceInventory, destInventory)
     print("\nTransferring all items...")
     local transferCount = 0
+    local retryCount = 0
+    local maxRetries = 2
+    local remainingSlots = {}
 
-    for slot, item in pairs(sourceInventory.contents) do
-        local success, message = transferItems(sourceInventory, destInventory, slot, item.count)
-        if success then
-            transferCount = transferCount + 1
-            print(message)
+    -- 最初に転送するスロットのリストを作成
+    for slot, _ in pairs(sourceInventory.contents) do
+        table.insert(remainingSlots, slot)
+    end
+
+    -- すべてのアイテムが転送されるか、最大リトライ回数に達するまで繰り返す
+    while #remainingSlots > 0 and retryCount < maxRetries do
+        local slotsToRetry = {}
+
+        -- 現在のリストにあるスロットを処理
+        for _, slot in ipairs(remainingSlots) do
+            -- 転送前に最新のインベントリ情報を取得
+            local source = peripheral.wrap(sourceInventory.name)
+
+            -- スロットにアイテムがあるか確認
+            local items = source.list()
+            if items[slot] then
+                local success, message = transferItems(sourceInventory, destInventory, slot, items[slot].count)
+                if success then
+                    transferCount = transferCount + 1
+                    print(message)
+                else
+                    -- 転送失敗したスロットを再試行リストに追加
+                    table.insert(slotsToRetry, slot)
+                    print("Failed to transfer from slot " .. slot .. ": " .. message)
+                end
+            end
+        end
+
+        -- 再試行リストを次のイテレーションのリストとして設定
+        remainingSlots = slotsToRetry
+
+        -- 再試行が必要な場合は少し待機
+        if #remainingSlots > 0 then
+            retryCount = retryCount + 1
+            print("Retrying " .. #remainingSlots .. " slots... (Attempt " .. retryCount .. "/" .. maxRetries .. ")")
+            sleep(0.5)
+
+            -- 再試行前にキャッシュを無効化して最新情報を取得
+            cachedInventories[sourceInventory.name] = nil
+            cachedInventories[destInventory.name] = nil
+            cachedItemLists[sourceInventory.name] = nil
+            cachedItemLists[destInventory.name] = nil
+
+            -- 転送元インベントリの情報を更新
+            sourceInventory = getInventoryDetails(sourceInventory.name, true)
         end
     end
 
-    print("Transferred items from " .. transferCount .. " slots")
+    -- 結果の表示
+    if #remainingSlots > 0 then
+        print("Warning: " .. #remainingSlots .. " slots could not be transferred after " .. maxRetries .. " attempts")
+    else
+        print("Successfully transferred all items from " .. transferCount .. " slots")
+    end
+
     sleep(0.5)
 
     -- 転送後、関連するインベントリのキャッシュを無効化
     cachedInventories[sourceInventory.name] = nil
     cachedInventories[destInventory.name] = nil
-    -- アイテム一覧のキャッシュも無効化
     cachedItemLists[sourceInventory.name] = nil
     cachedItemLists[destInventory.name] = nil
 
@@ -276,7 +325,7 @@ function showTransferInterface(inventories)
             -- スクロールコントロールの表示（アイテムが多い場合）
             if totalItems > ITEMS_PER_PAGE then
                 local currentPage = math.ceil(scrollOffset / ITEMS_PER_PAGE) + 1
-                local totalPages = math.ceil(totalItems / ITEMS_PER_PAGE) + 1
+                local totalPages = math.ceil(totalItems / ITEMS_PER_PAGE)
                 print("Page " .. currentPage .. " of " .. totalPages .. " (Up/Down keys to change page)")
             end
 
@@ -344,6 +393,7 @@ function showTransferInterface(inventories)
             sleep(0.5)
             selectedSourceIndex = nil
             selectedDestIndex = nil
+            resetScroll() -- スクロール位置をリセット
             showTransferInterface(inventories)
         end
     else
