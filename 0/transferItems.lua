@@ -11,6 +11,9 @@ local scrollOffset = 0 -- アイテムリストのスクロールオフセット
 local ITEMS_PER_PAGE = 9 -- 1ページあたりの表示アイテム数
 local scrollUpPos = nil -- スクロールアップボタンの位置
 local scrollDownPos = nil -- スクロールダウンボタンの位置
+local cachedInventories = {} -- インベントリ情報のキャッシュ
+local inventoryOrder = {} -- インベントリの順序を保持する配列
+local lastRefreshTime = 0 -- 最後にインベントリ情報を更新した時間
 
 -- スクロール位置をリセットする関数
 function resetScroll()
@@ -53,7 +56,12 @@ function isInventory(peripheralName)
 end
 
 -- Function to get inventory details
-function getInventoryDetails(peripheralName)
+function getInventoryDetails(peripheralName, forceRefresh)
+    -- キャッシュにあり、強制更新でなければキャッシュを返す
+    if not forceRefresh and cachedInventories[peripheralName] then
+        return cachedInventories[peripheralName]
+    end
+
     local inventory = peripheral.wrap(peripheralName)
     local details = {
         name = peripheralName,
@@ -102,7 +110,39 @@ function getInventoryDetails(peripheralName)
         details.items = itemCount
     end
 
+    -- 結果をキャッシュに保存
+    cachedInventories[peripheralName] = details
     return details
+end
+
+-- Function to refresh inventory data only when needed
+function refreshInventories(peripherals, forceRefresh)
+    local currentTime = os.clock()
+    local inventories = {}
+
+    -- 前回の更新から一定時間経過していない場合、かつ強制更新でない場合はキャッシュを使用
+    if not forceRefresh and (currentTime - lastRefreshTime < REFRESH_INTERVAL) and next(cachedInventories) then
+        -- キャッシュされたインベントリ情報を使用（順序を保持）
+        for _, name in ipairs(inventoryOrder) do
+            if cachedInventories[name] then
+                table.insert(inventories, cachedInventories[name])
+            end
+        end
+        return inventories
+    end
+
+    -- インベントリ情報を更新
+    inventoryOrder = {} -- 順序をリセット
+    for _, peripheral in ipairs(peripherals) do
+        if isInventory(peripheral.name) then
+            local details = getInventoryDetails(peripheral.name, true)
+            table.insert(inventories, details)
+            table.insert(inventoryOrder, peripheral.name) -- 順序を記録
+        end
+    end
+
+    lastRefreshTime = currentTime
+    return inventories
 end
 
 -- Function to transfer items between inventories
@@ -128,6 +168,9 @@ function transferItems(sourceInventory, destInventory, sourceSlot, count)
     local success, transferred = pcall(source.pushItems, destName, sourceSlot, count)
 
     if success and transferred > 0 then
+        -- 転送成功後、関連するインベントリのキャッシュを無効化
+        cachedInventories[sourceName] = nil
+        cachedInventories[destName] = nil
         return true, "Transferred " .. transferred .. " items"
     else
         return false, "Failed to transfer items"
@@ -149,6 +192,11 @@ function transferAllItems(sourceInventory, destInventory)
 
     print("Transferred items from " .. transferCount .. " slots")
     sleep(0.5)
+
+    -- 転送後、関連するインベントリのキャッシュを無効化
+    cachedInventories[sourceInventory.name] = nil
+    cachedInventories[destInventory.name] = nil
+
     return transferCount > 0
 end
 
@@ -562,19 +610,14 @@ function main()
     -- Main loop
     while true do
         local peripherals = getAllPeripherals()
-        local inventories = {}
-
-        -- Find all inventories
-        for _, peripheral in ipairs(peripherals) do
-            if isInventory(peripheral.name) then
-                table.insert(inventories, getInventoryDetails(peripheral.name))
-            end
-        end
+        -- 初回または定期的な更新時のみインベントリ情報を取得
+        local inventories = refreshInventories(peripherals, false)
 
         inventories = showTransferInterface(inventories)
 
         local timer = os.startTimer(REFRESH_INTERVAL)
         local shouldRefresh = false
+        local forceRefresh = false
 
         -- イベント処理ループ
         while not shouldRefresh do
@@ -583,25 +626,32 @@ function main()
             if event == "timer" and param == timer then
                 -- タイマーイベント：画面を更新
                 shouldRefresh = true
+                forceRefresh = true -- 定期更新時は強制的にインベントリ情報を更新
             elseif event == "key" then
                 -- キーボードイベント
                 if handleKeyEvents(inventories, param) then
                     shouldRefresh = true
+                    -- アイテム転送操作の場合のみ強制更新
+                    if VIEW_MODE == "items" and
+                        (param == keys.a or param == keys.zero or (param >= keys.one and param <= keys.nine)) then
+                        forceRefresh = true
+                    end
                 end
             elseif event == "mouse_click" then
                 -- マウスクリックイベント
                 if handleMouseClick(inventories, param, param2, param3) then
                     shouldRefresh = true
+                    -- アイテム転送操作の場合のみ強制更新
+                    if VIEW_MODE == "items" and
+                        ((transferAllPos and param3 == transferAllPos.head) or
+                            (not scrollUpPos or param3 ~= scrollUpPos.head) and
+                            (not scrollDownPos or param3 ~= scrollDownPos.head)) then
+                        forceRefresh = true
+                    end
                 end
             elseif event == "mouse_scroll" then
-                -- マウスホイールイベント
+                -- マウスホイールイベント（スクロールのみなので強制更新不要）
                 if VIEW_MODE == "items" then
-                    local sourceInv = inventories[selectedSourceIndex]
-                    local totalItems = 0
-                    for _, _ in pairs(sourceInv.contents) do
-                        totalItems = totalItems + 1
-                    end
-
                     if param > 0 then
                         -- 上にスクロール
                         if scrollOffset > 0 then
@@ -610,6 +660,11 @@ function main()
                         end
                     else
                         -- 下にスクロール
+                        local sourceInv = inventories[selectedSourceIndex]
+                        local totalItems = 0
+                        for _, _ in pairs(sourceInv.contents) do
+                            totalItems = totalItems + 1
+                        end
 
                         if scrollOffset < totalItems - (ITEMS_PER_PAGE - 2) then
                             scrollOffset = math.min(totalItems - 1, scrollOffset + 1)
@@ -618,6 +673,12 @@ function main()
                     end
                 end
             end
+        end
+
+        -- 次のループでインベントリ情報を更新するかどうか
+        if forceRefresh then
+            -- キャッシュをクリアして次回の更新で強制的に再取得
+            cachedInventories = {}
         end
     end
 end
