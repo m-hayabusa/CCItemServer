@@ -244,13 +244,16 @@ end
 function showTransferInterface(inventories)
     clearScreen()
 
-    -- 戻るボタンを追加
-    local x, y = term.getCursorPos()
-    backButtonPos = {
-        head = y,
-        tail = y
-    }
-    print("[Back to Inventory List (q)]")
+    if selectedSourceIndex and selectedDestIndex then
+        local x, y = term.getCursorPos()
+        backButtonPos = {
+            head = y,
+            tail = y
+        }
+        print("[Back to Inventory List (q)]")
+    else
+        backButtonPos = nil
+    end
 
     print("-----------------------------")
 
