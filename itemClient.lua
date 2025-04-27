@@ -4,6 +4,7 @@
 local SERVER_CHANNEL = 137 -- Server communication channel
 local CLIENT_CHANNEL = os.getComputerID() + 5000 -- Unique client channel
 local SERVER_TIMEOUT = 30 -- Timeout for server responses in seconds
+local INACTIVITY_TIMEOUT = 300 -- Inactivity timeout in seconds
 
 -- UI state
 local VIEW_MODE = "inventories" -- "inventories" or "items"
@@ -17,6 +18,7 @@ local scrollUpPos = nil
 local scrollDownPos = nil
 local inventories = {}
 local currentItems = {}
+local lastActivityTime = os.clock() -- 最後の操作時間を記録
 
 -- Initialize modem
 local modem = peripheral.find("modem")
@@ -27,6 +29,26 @@ end
 
 modem.open(CLIENT_CHANNEL)
 print("Client started on channel " .. CLIENT_CHANNEL)
+
+-- 操作があったときに最終活動時間を更新する関数
+function updateActivityTime()
+    lastActivityTime = os.clock()
+end
+
+-- 非アクティブ時間をチェックする関数
+function checkInactivity()
+    local currentTime = os.clock()
+    local inactiveTime = currentTime - lastActivityTime
+
+    if inactiveTime >= INACTIVITY_TIMEOUT then
+        clearScreen()
+        print("Shutting down due to inactivity (" .. math.floor(INACTIVITY_TIMEOUT / 60) .. " minutes)")
+        sleep(2)
+        return true -- シャットダウンする
+    end
+
+    return false -- 継続する
+end
 
 -- Function to send request to server and wait for response
 function sendRequest(requestType, params)
@@ -53,6 +75,7 @@ function sendRequest(requestType, params)
 
         if event == "modem_message" and param2 == CLIENT_CHANNEL and param3 == SERVER_CHANNEL then
             -- Response received
+            updateActivityTime() -- サーバーからの応答も操作とみなす
             return message
         elseif event == "timer" and param1 == timer then
             -- Timeout
@@ -313,6 +336,8 @@ function editInventoryName(inventoryIndex)
     write("Enter new display name: ")
 
     local newName = read()
+    updateActivityTime() -- 名前入力も操作とみなす
+
     if newName and newName ~= "" then
         -- サーバーに名前変更リクエストを送信
         local response = sendRequest("SET_INVENTORY_NAME", {
@@ -335,6 +360,8 @@ end
 
 -- Function to handle key events
 function handleKeyEvents(key)
+    updateActivityTime() -- キー操作があったことを記録
+
     -- 共通のキー処理
     if key == keys.q or key == keys.backspace or key == keys.escape then
         -- BackspaceまたはEscキーで前の画面に戻る
@@ -354,6 +381,7 @@ function handleKeyEvents(key)
             os.pullEvent("key_up") -- キーが離されるのを待つ
             write("\nEnter source inventory number: ")
             local input = read()
+            updateActivityTime() -- 入力も操作とみなす
             local num = tonumber(input)
             if num and num >= 1 and num <= #inventories then
                 selectedSourceIndex = num
@@ -365,6 +393,7 @@ function handleKeyEvents(key)
             os.pullEvent("key_up") -- キーが離されるのを待つ
             write("\nEnter destination inventory number: ")
             local input = read()
+            updateActivityTime() -- 入力も操作とみなす
             local num = tonumber(input)
             if num and num >= 1 and num <= #inventories then
                 selectedDestIndex = num
@@ -376,6 +405,7 @@ function handleKeyEvents(key)
             os.pullEvent("key_up") -- キーが離されるのを待つ
             write("\nEnter inventory number to edit name: ")
             local input = read()
+            updateActivityTime() -- 入力も操作とみなす
             local num = tonumber(input)
             if num and num >= 1 and num <= #inventories then
                 editInventoryName(num)
@@ -453,6 +483,8 @@ end
 
 -- Function to handle mouse clicks for inventory selection
 function handleMouseClick(button, x, y)
+    updateActivityTime() -- マウス操作があったことを記録
+
     -- 戻るボタンがクリックされたかチェック
     if backButtonPos and y == backButtonPos.head then
         selectedSourceIndex = nil
@@ -529,6 +561,8 @@ end
 
 -- Function to handle mouse scroll events
 function handleMouseScroll(direction)
+    updateActivityTime() -- マウススクロール操作があったことを記録
+
     if VIEW_MODE == "items" then
         if direction > 0 then
             -- 上にスクロール
@@ -557,8 +591,15 @@ function showMainInterface()
     print("- Left-click   / S: Select source inventory")
     print("- Right-click  / D: Select destination inventory")
     print("- Middle-click / E: Edit inventory name")
-    print("-                Q: Back")
+    print("-                Q: Back/Exit")
     print("==============================")
+
+    -- 非アクティブタイマーの表示
+    local inactiveTime = os.clock() - lastActivityTime
+    local remainingTime = INACTIVITY_TIMEOUT - inactiveTime
+    if remainingTime < 60 then
+        print("Auto-shutdown in " .. math.floor(remainingTime) .. " seconds\n")
+    end
 
     -- インベントリリスト表示
     printInventories()
@@ -587,6 +628,12 @@ function main()
 
     -- Main loop
     while true do
+        -- 非アクティブ時間をチェック
+        if checkInactivity() then
+            -- 非アクティブタイムアウトが発生したらプログラム終了
+            return
+        end
+
         -- メインインターフェース表示に変更
         if VIEW_MODE == "inventories" and not selectedSourceIndex and not selectedDestIndex then
             showMainInterface()
@@ -594,7 +641,7 @@ function main()
             showTransferInterface()
         end
 
-        local timer = os.startTimer(30) -- 30秒ごとに画面更新
+        local timer = os.startTimer(5) -- 5秒ごとに画面更新（非アクティブチェックのため短くする）
         local shouldRefresh = false
         local forceRefresh = false
 
@@ -605,7 +652,13 @@ function main()
             if event == "timer" and param == timer then
                 -- タイマーイベント：画面を更新
                 shouldRefresh = true
-                forceRefresh = true -- 定期更新時は強制的にインベントリ情報を更新
+
+                -- 非アクティブ時間をチェック
+                if checkInactivity() then
+                    -- 非アクティブタイムアウトが発生したらプログラム終了
+                    os.shutdown()
+                    return
+                end
             elseif event == "key" then
                 -- キーボードイベント
                 if handleKeyEvents(param) then
