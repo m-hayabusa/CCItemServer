@@ -1,5 +1,8 @@
 -- Inventory Scanner and Transfer Tool for ComputerCraft
 -- Lists all inventories accessible via modem and allows item transfer between them
+-- ライブラリの読み込み
+local inventoryUtils = require("lib.inventoryUtils")
+
 -- Configuration
 local REFRESH_INTERVAL = 30 -- Refresh interval in seconds
 local VIEW_MODE = "inventories" -- "inventories" or "items"
@@ -11,11 +14,8 @@ local scrollOffset = 0 -- アイテムリストのスクロールオフセット
 local ITEMS_PER_PAGE = 9 -- 1ページあたりの表示アイテム数
 local scrollUpPos = nil -- スクロールアップボタンの位置
 local scrollDownPos = nil -- スクロールダウンボタンの位置
-local cachedInventories = {} -- インベントリ情報のキャッシュ
 local inventoryOrder = {} -- インベントリの順序を保持する配列
 local lastRefreshTime = 0 -- 最後にインベントリ情報を更新した時間
-local cachedItemLists = {} -- アイテム一覧のキャッシュ
-local cachedItemListsTime = {} -- アイテム一覧キャッシュの最終更新時間
 
 -- スクロール位置をリセットする関数
 function resetScroll()
@@ -45,91 +45,18 @@ function getAllPeripherals()
     return peripheralList
 end
 
--- Function to check if a peripheral is an inventory
-function isInventory(peripheralName)
-    local methods = peripheral.getMethods(peripheralName)
-
-    -- Check for common inventory methods
-    for _, method in ipairs(methods) do
-        if method == "list" or method == "getItemDetail" or method == "size" then
-            return true
-        end
-    end
-
-    return false
-end
-
--- Function to get inventory details
-function getInventoryDetails(peripheralName, forceRefresh)
-    -- キャッシュにあり、強制更新でなければキャッシュを返す
-    if not forceRefresh and cachedInventories[peripheralName] then
-        return cachedInventories[peripheralName]
-    end
-
-    local inventory = peripheral.wrap(peripheralName)
-    local details = {
-        name = peripheralName,
-        type = peripheral.getType(peripheralName),
-        size = 0,
-        items = 0,
-        contents = {}
-    }
-
-    -- Try to get inventory size
-    if inventory.size then
-        details.size = inventory.size()
-    end
-
-    -- Try to get inventory contents
-    if inventory.list then
-        local contents = inventory.list()
-        local itemCount = 0
-
-        for slot, item in pairs(contents) do
-            itemCount = itemCount + 1
-
-            -- Get more details if possible
-            if inventory.getItemDetail then
-                local itemDetail = inventory.getItemDetail(slot)
-                if itemDetail then
-                    details.contents[slot] = {
-                        name = itemDetail.name,
-                        count = itemDetail.count,
-                        displayName = itemDetail.displayName or itemDetail.name
-                    }
-                else
-                    details.contents[slot] = {
-                        name = "unknown",
-                        count = item.count
-                    }
-                end
-            else
-                details.contents[slot] = {
-                    name = "unknown",
-                    count = item.count
-                }
-            end
-        end
-
-        details.items = itemCount
-    end
-
-    -- 結果をキャッシュに保存
-    cachedInventories[peripheralName] = details
-    return details
-end
-
 -- Function to refresh inventory data only when needed
 function refreshInventories(peripherals, forceRefresh)
     local currentTime = os.clock()
     local inventories = {}
 
     -- 前回の更新から一定時間経過していない場合、かつ強制更新でない場合はキャッシュを使用
-    if not forceRefresh and (currentTime - lastRefreshTime < REFRESH_INTERVAL) and next(cachedInventories) then
+    if not forceRefresh and (currentTime - lastRefreshTime < REFRESH_INTERVAL) and #inventoryOrder > 0 then
         -- キャッシュされたインベントリ情報を使用（順序を保持）
         for _, name in ipairs(inventoryOrder) do
-            if cachedInventories[name] then
-                table.insert(inventories, cachedInventories[name])
+            local details = inventoryUtils.getInventoryDetails(name, false)
+            if details then
+                table.insert(inventories, details)
             end
         end
         return inventories
@@ -138,8 +65,8 @@ function refreshInventories(peripherals, forceRefresh)
     -- インベントリ情報を更新
     inventoryOrder = {} -- 順序をリセット
     for _, peripheral in ipairs(peripherals) do
-        if isInventory(peripheral.name) then
-            local details = getInventoryDetails(peripheral.name, true)
+        if inventoryUtils.isInventory(peripheral.name) then
+            local details = inventoryUtils.getInventoryDetails(peripheral.name, true)
             table.insert(inventories, details)
             table.insert(inventoryOrder, peripheral.name) -- 順序を記録
         end
@@ -147,148 +74,6 @@ function refreshInventories(peripherals, forceRefresh)
 
     lastRefreshTime = currentTime
     return inventories
-end
-
--- アイテム一覧を取得する関数（キャッシュ対応）
-function getItemList(inventory, forceRefresh)
-    local inventoryName = inventory.name
-    local currentTime = os.clock()
-
-    -- キャッシュが有効かチェック
-    if not forceRefresh and cachedItemLists[inventoryName] and
-        (currentTime - (cachedItemListsTime[inventoryName] or 0) < REFRESH_INTERVAL) then
-        return cachedItemLists[inventoryName]
-    end
-
-    -- アイテムリストを作成
-    local itemList = {}
-    local totalItems = 0
-
-    for slot, item in pairs(inventory.contents) do
-        totalItems = totalItems + 1
-        table.insert(itemList, {
-            slot = slot,
-            name = item.name,
-            displayName = item.displayName or item.name,
-            count = item.count
-        })
-    end
-
-    -- 結果をキャッシュ
-    cachedItemLists[inventoryName] = itemList
-    cachedItemListsTime[inventoryName] = currentTime
-
-    return itemList
-end
-
--- Function to transfer items between inventories
-function transferItems(sourceInventory, destInventory, sourceSlot, count)
-    -- 名前が正しい形式かチェック（末尾のコロンを削除）
-    local sourceName = sourceInventory.name:gsub(":$", "")
-    local destName = destInventory.name:gsub(":$", "")
-
-    -- ペリフェラルが存在するか確認
-    local source = peripheral.wrap(sourceName)
-    local dest = peripheral.wrap(destName)
-
-    -- 両方のペリフェラルが有効かチェック
-    if not source then
-        return false, "Source peripheral not found: " .. sourceName
-    end
-
-    if not dest then
-        return false, "Destination peripheral not found: " .. destName
-    end
-
-    -- アイテム転送を試みる
-    local success, transferred = pcall(source.pushItems, destName, sourceSlot, count)
-
-    if success and transferred > 0 then
-        -- 転送成功後、関連するインベントリのキャッシュを無効化
-        cachedInventories[sourceName] = nil
-        cachedInventories[destName] = nil
-        -- アイテム一覧のキャッシュも無効化
-        cachedItemLists[sourceName] = nil
-        cachedItemLists[destName] = nil
-        return true, "Transferred " .. transferred .. " items"
-    else
-        return false, "Failed to transfer items"
-    end
-end
-
--- Function to transfer all items from source to destination
-function transferAllItems(sourceInventory, destInventory)
-    print("\nTransferring all items...")
-    local transferCount = 0
-    local retryCount = 0
-    local maxRetries = 2
-    local remainingSlots = {}
-
-    -- 最初に転送するスロットのリストを作成
-    for slot, _ in pairs(sourceInventory.contents) do
-        table.insert(remainingSlots, slot)
-    end
-
-    -- すべてのアイテムが転送されるか、最大リトライ回数に達するまで繰り返す
-    while #remainingSlots > 0 and retryCount < maxRetries do
-        local slotsToRetry = {}
-
-        -- 現在のリストにあるスロットを処理
-        for _, slot in ipairs(remainingSlots) do
-            -- 転送前に最新のインベントリ情報を取得
-            local source = peripheral.wrap(sourceInventory.name)
-
-            -- スロットにアイテムがあるか確認
-            local items = source.list()
-            if items[slot] then
-                local success, message = transferItems(sourceInventory, destInventory, slot, items[slot].count)
-                if success then
-                    transferCount = transferCount + 1
-                    print(message)
-                else
-                    -- 転送失敗したスロットを再試行リストに追加
-                    table.insert(slotsToRetry, slot)
-                    print("Failed to transfer from slot " .. slot .. ": " .. message)
-                end
-            end
-        end
-
-        -- 再試行リストを次のイテレーションのリストとして設定
-        remainingSlots = slotsToRetry
-
-        -- 再試行が必要な場合は少し待機
-        if #remainingSlots > 0 then
-            retryCount = retryCount + 1
-            print("Retrying " .. #remainingSlots .. " slots... (Attempt " .. retryCount .. "/" .. maxRetries .. ")")
-            sleep(0.5)
-
-            -- 再試行前にキャッシュを無効化して最新情報を取得
-            cachedInventories[sourceInventory.name] = nil
-            cachedInventories[destInventory.name] = nil
-            cachedItemLists[sourceInventory.name] = nil
-            cachedItemLists[destInventory.name] = nil
-
-            -- 転送元インベントリの情報を更新
-            sourceInventory = getInventoryDetails(sourceInventory.name, true)
-        end
-    end
-
-    -- 結果の表示
-    if #remainingSlots > 0 then
-        print("Warning: " .. #remainingSlots .. " slots could not be transferred after " .. maxRetries .. " attempts")
-    else
-        print("Successfully transferred all items from " .. transferCount .. " slots")
-    end
-
-    sleep(0.5)
-
-    -- 転送後、関連するインベントリのキャッシュを無効化
-    cachedInventories[sourceInventory.name] = nil
-    cachedInventories[destInventory.name] = nil
-    cachedItemLists[sourceInventory.name] = nil
-    cachedItemLists[destInventory.name] = nil
-
-    return transferCount > 0
 end
 
 -- Function to display transfer interface
@@ -321,7 +106,7 @@ function showTransferInterface(inventories)
         print("Source Contents:")
         if sourceInv.items > 0 then
             -- アイテムリストを取得（キャッシュ利用）
-            local itemList = getItemList(sourceInv, false)
+            local itemList = inventoryUtils.getItemList(sourceInv, false)
             local totalItems = #itemList
 
             -- スクロールコントロールの表示（アイテムが多い場合）
@@ -467,7 +252,7 @@ function handleKeyEvents(inventories, key)
         if key == keys.up then
             -- 上キーでページアップ（PgUp相当）
             local sourceInv = inventories[selectedSourceIndex]
-            local itemList = getItemList(sourceInv, false)
+            local itemList = inventoryUtils.getItemList(sourceInv, false)
             local totalItems = #itemList
 
             scrollOffset = math.max(0, scrollOffset - (ITEMS_PER_PAGE - 2))
@@ -475,7 +260,7 @@ function handleKeyEvents(inventories, key)
         elseif key == keys.down then
             -- 下キーでページダウン（PgDn相当）
             local sourceInv = inventories[selectedSourceIndex]
-            local itemList = getItemList(sourceInv, false)
+            local itemList = inventoryUtils.getItemList(sourceInv, false)
             local totalItems = #itemList
 
             scrollOffset = math.min(totalItems - (ITEMS_PER_PAGE - 2), scrollOffset + (ITEMS_PER_PAGE - 2))
@@ -483,7 +268,7 @@ function handleKeyEvents(inventories, key)
         elseif key == keys.a or key == keys.zero then
             -- 0キーまたはAキーですべてのアイテムを転送
             local sourceInv = inventories[selectedSourceIndex]
-            transferAllItems(sourceInv, inventories[selectedDestIndex])
+            inventoryUtils.transferAllItems(sourceInv, inventories[selectedDestIndex])
             return true
         elseif key >= keys.one and key <= keys.nine then
             -- 数字キー1-9でアイテムを直接選択して転送
@@ -497,7 +282,7 @@ function handleKeyEvents(inventories, key)
 
             -- 最後のアイテムがスクロールダウンボタンの場合
             local sourceInv = inventories[selectedSourceIndex]
-            local itemList = getItemList(sourceInv, false)
+            local itemList = inventoryUtils.getItemList(sourceInv, false)
             local totalItems = #itemList
 
             if numKey == ITEMS_PER_PAGE - 2 and scrollDownPos then
@@ -507,7 +292,7 @@ function handleKeyEvents(inventories, key)
 
             -- 通常のアイテム選択処理
             local sourceInv = inventories[selectedSourceIndex]
-            local itemList = getItemList(sourceInv, false)
+            local itemList = inventoryUtils.getItemList(sourceInv, false)
 
             -- 選択されたアイテムのインデックスを計算
             local selectedIndex = scrollOffset + numKey
@@ -516,7 +301,8 @@ function handleKeyEvents(inventories, key)
                 local item = itemList[selectedIndex]
                 print("\nTransferring " .. item.displayName .. " x" .. item.count)
 
-                local success, message = transferItems(sourceInv, inventories[selectedDestIndex], item.slot, item.count)
+                local success, message = inventoryUtils.transferItems(sourceInv, inventories[selectedDestIndex],
+                    item.slot, item.count)
                 print(message)
                 sleep(0.5) -- Pause to show results
                 return true
@@ -563,7 +349,7 @@ function handleMouseClick(inventories, button, x, y)
 
             -- 「すべてのアイテム」行がクリックされたかチェック
             if transferAllPos and y == transferAllPos.head then
-                transferAllItems(sourceInv, inventories[selectedDestIndex])
+                inventoryUtils.transferAllItems(sourceInv, inventories[selectedDestIndex])
                 return true
             end
 
@@ -575,7 +361,7 @@ function handleMouseClick(inventories, button, x, y)
 
             -- スクロールダウンボタンがクリックされたかチェック
             if scrollDownPos and y == scrollDownPos.head then
-                local itemList = getItemList(sourceInv, false)
+                local itemList = inventoryUtils.getItemList(sourceInv, false)
                 local totalItems = #itemList
 
                 scrollOffset = math.min(totalItems - (ITEMS_PER_PAGE - 2), scrollOffset + (ITEMS_PER_PAGE - 2))
@@ -583,7 +369,7 @@ function handleMouseClick(inventories, button, x, y)
             end
 
             -- 個別アイテムリストの位置を特定
-            local itemList = getItemList(sourceInv, false)
+            local itemList = inventoryUtils.getItemList(sourceInv, false)
 
             -- 表示されているアイテムをチェック
             for i = 1, math.min(ITEMS_PER_PAGE - 2, #itemList - scrollOffset) do
@@ -593,8 +379,8 @@ function handleMouseClick(inventories, button, x, y)
                 -- アイテム行の位置を確認
                 if item.pos and item.pos.head <= y and y <= item.pos.tail then
                     print("\nTransferring " .. item.displayName .. " x" .. item.count)
-                    local success, message = transferItems(sourceInv, inventories[selectedDestIndex], item.slot,
-                        item.count)
+                    local success, message = inventoryUtils.transferItems(sourceInv, inventories[selectedDestIndex],
+                        item.slot, item.count)
                     print(message)
                     sleep(0.5) -- 結果表示のための短い待機
                     return true
@@ -722,7 +508,7 @@ function main()
                 -- マウスホイールイベント（スクロールのみなので強制更新不要）
                 if VIEW_MODE == "items" then
                     local sourceInv = inventories[selectedSourceIndex]
-                    local itemList = getItemList(sourceInv, false)
+                    local itemList = inventoryUtils.getItemList(sourceInv, false)
                     local totalItems = #itemList
 
                     if param > 0 then
