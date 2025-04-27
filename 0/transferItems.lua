@@ -1,10 +1,12 @@
--- Inventory Scanner for ComputerCraft
--- Lists all inventories accessible via modem
+-- Inventory Scanner and Transfer Tool for ComputerCraft
+-- Lists all inventories accessible via modem and allows item transfer between them
 -- Configuration
 local REFRESH_INTERVAL = 3 -- Refresh interval in seconds
 local VIEW_MODE = "inventories" -- "inventories" or "items"
 local selectedSourceIndex = nil
 local selectedDestIndex = nil
+local backButtonPos = nil
+local transferAllPos = nil
 
 -- Function to clear the screen
 function clearScreen()
@@ -94,6 +96,7 @@ function getInventoryDetails(peripheralName)
     return details
 end
 
+-- Function to transfer items between inventories
 function transferItems(sourceInventory, destInventory, sourceSlot, count)
     -- 名前が正しい形式かチェック（末尾のコロンを削除）
     local sourceName = sourceInventory.name:gsub(":$", "")
@@ -112,6 +115,7 @@ function transferItems(sourceInventory, destInventory, sourceSlot, count)
         return false, "Destination peripheral not found: " .. destName
     end
 
+    -- アイテム転送を試みる
     local success, transferred = pcall(source.pushItems, destName, sourceSlot, count)
 
     if success and transferred > 0 then
@@ -121,10 +125,29 @@ function transferItems(sourceInventory, destInventory, sourceSlot, count)
     end
 end
 
+-- Function to transfer all items from source to destination
+function transferAllItems(sourceInventory, destInventory)
+    print("\nTransferring all items...")
+    local transferCount = 0
+
+    for slot, item in pairs(sourceInventory.contents) do
+        local success, message = transferItems(sourceInventory, destInventory, slot, item.count)
+        if success then
+            transferCount = transferCount + 1
+            print(message)
+        end
+    end
+
+    print("Transferred items from " .. transferCount .. " slots")
+    sleep(0.5)
+    return transferCount > 0
+end
+
 -- Function to display transfer interface
 function showTransferInterface(inventories)
     clearScreen()
 
+    -- 戻るボタンを追加
     local x, y = term.getCursorPos()
     backButtonPos = {
         head = y,
@@ -171,7 +194,7 @@ function showTransferInterface(inventories)
 
             VIEW_MODE = "items"
 
-            print("\nEnter slot number (0-" .. math.min(count, 9) .. ") to transfer, or 'q' to quit: ")
+            print("\nSelect slot (0-" .. math.min(count, 9) .. ") to transfer, or 'q' to quit: ")
         else
             print("Source inventory is empty")
             sleep(0.5)
@@ -186,21 +209,27 @@ function showTransferInterface(inventories)
     return inventories
 end
 
+-- Function to redirect output to a monitor if available
 function redirectToMonitor()
     local monitor = peripheral.find("monitor")
-    term.redirect(monitor)
-    monitor.clear()
-    monitor.setCursorPos(1, 1)
-    monitor.setTextScale(0.5)
+    if monitor then
+        term.redirect(monitor)
+        monitor.clear()
+        monitor.setCursorPos(1, 1)
+        monitor.setTextScale(0.5)
+        return true
+    end
+    return false
 end
 
+-- Function to print inventory list with items
 function printInventories(inventories, limit)
     for i, inventory in ipairs(inventories) do
         inventory.pos = {
             head = nil,
             tail = nil
         }
-        x, y = term.getCursorPos()
+        local x, y = term.getCursorPos()
         inventory.pos.head = y
         print(i .. ". " .. inventory.name)
 
@@ -217,7 +246,7 @@ function printInventories(inventories, limit)
                 print("     ... and " .. (count - limit) .. " more items")
             end
         end
-        x, y = term.getCursorPos()
+        local x, y = term.getCursorPos()
         inventory.pos.tail = y
 
         print("")
@@ -226,44 +255,73 @@ function printInventories(inventories, limit)
     return inventories
 end
 
--- Function to handle keyboard input for transfer
-function handleKeyboardInput(inventories)
-    -- If both source and destination are selected, handle item transfer
-    if VIEW_MODE == "items" then
-        write("> ")
-        local input = read()
-
-        local sourceInv = inventories[selectedSourceIndex]
-
-        if input == "" or input == "q" then
+-- Function to handle key events
+function handleKeyEvents(inventories, key)
+    -- 共通のキー処理
+    if key == keys.q or key == keys.backspace or key == keys.escape then
+        -- BackspaceまたはEscキーで前の画面に戻る
+        if VIEW_MODE == "items" then
+            VIEW_MODE = "inventories"
             selectedSourceIndex = nil
             selectedDestIndex = nil
-            VIEW_MODE = "inventories"
-            return
         end
+        return true
+    end
 
-        -- '0' key to transfer all items
-        if input == "0" or input == "a" or input == "all" then
-            print("\nTransferring all items...")
-            local transferCount = 0
-
-            for slot, item in pairs(sourceInv.contents) do
-                local success, message = transferItems(sourceInv, inventories[selectedDestIndex], slot, item.count)
-                if success then
-                    transferCount = transferCount + 1
-                    print(message)
-                end
+    -- VIEW_MODEに応じた処理
+    if VIEW_MODE == "inventories" then
+        if key == keys.s then
+            -- Sキーで転送元選択モード
+            os.pullEvent("key_up") -- キーが離されるのを待つ
+            print("\nEnter source inventory number: ")
+            local input = read()
+            local num = tonumber(input)
+            if num and num >= 1 and num <= #inventories then
+                selectedSourceIndex = num
+                print("Selected source: " .. inventories[num].name)
             end
+            return true
+        elseif key == keys.d then
+            -- Dキーで転送先選択モード
+            os.pullEvent("key_up") -- キーが離されるのを待つ
+            print("\nEnter destination inventory number: ")
+            local input = read()
+            local num = tonumber(input)
+            if num and num >= 1 and num <= #inventories then
+                selectedDestIndex = num
+                print("Selected destination: " .. inventories[num].name)
+            end
+            return true
+        elseif key >= keys.one and key <= keys.nine then
+            -- 数字キー1-9でインベントリを直接選択
+            local num = key - keys.one + 1
+            if num >= 1 and num <= #inventories then
+                if selectedSourceIndex == nil then
+                    selectedSourceIndex = num
+                    print("Selected source: " .. inventories[num].name)
+                elseif selectedDestIndex == nil then
+                    selectedDestIndex = num
+                    print("Selected destination: " .. inventories[num].name)
+                end
 
-            print("Transferred items from " .. transferCount .. " slots")
-            sleep(0.5)
-            return
+                -- 両方選択されたらアイテム表示モードに切り替え
+                if selectedSourceIndex and selectedDestIndex then
+                    VIEW_MODE = "items"
+                end
+                return true
+            end
         end
+    elseif VIEW_MODE == "items" then
+        if key == keys.a or key == keys.zero then
+            -- 0キーまたはAキーですべてのアイテムを転送
+            local sourceInv = inventories[selectedSourceIndex]
+            transferAllItems(sourceInv, inventories[selectedDestIndex])
+            return true
+        elseif key >= keys.one and key <= keys.nine then
+            -- 数字キー1-9でアイテムを直接選択して転送
+            local numKey = key - keys.one + 1
+            local sourceInv = inventories[selectedSourceIndex]
 
-        -- Number keys 1-9 to transfer specific items
-        local numKey = tonumber(input)
-
-        if numKey and numKey >= 1 and numKey <= 9 then
             -- Find the nth item in the inventory
             local count = 0
             for slot, item in pairs(sourceInv.contents) do
@@ -275,31 +333,16 @@ function handleKeyboardInput(inventories)
                     sleep(0.5) -- Pause to show results
                     break
                 end
-            end
-        end
-    else
-        local target = selectedSourceIndex == nil and "source" or selectedDestIndex == nil and "destination" or nil
-        if target then
-            write("\nEnter " .. target .. " number, or 'q' to quit\n> ")
-            local input = read()
 
-            if input == "" or input == "q" then
-                selectedSourceIndex = nil
-                selectedDestIndex = nil
-                VIEW_MODE = "inventories"
-                return
+                if count >= 9 then
+                    break
+                end -- 最大9アイテムまで
             end
-
-            local num = tonumber(input)
-            if num and num >= 1 and num <= #inventories then
-                if target == "source" then
-                    selectedSourceIndex = num
-                elseif target == "destination" then
-                    selectedDestIndex = num
-                end
-            end
+            return true
         end
     end
+
+    return false
 end
 
 -- Function to handle mouse clicks for inventory selection
@@ -398,6 +441,9 @@ function main()
         return
     end
 
+    -- 可能であればモニターにリダイレクト
+    redirectToMonitor()
+
     -- Main loop
     while true do
         local peripherals = getAllPeripherals()
@@ -413,111 +459,24 @@ function main()
         inventories = showTransferInterface(inventories)
 
         local timer = os.startTimer(REFRESH_INTERVAL)
+        local shouldRefresh = false
 
-        while true do
+        -- イベント処理ループ
+        while not shouldRefresh do
             local event, param, param2, param3 = os.pullEvent()
+
             if event == "timer" and param == timer then
-                break
+                -- タイマーイベント：画面を更新
+                shouldRefresh = true
             elseif event == "key" then
-                -- キーボードイベントの処理
-                if param == keys.q or param == keys.backspace or param == keys.escape then
-                    -- BackspaceまたはEscキーで前の画面に戻る
-                    if VIEW_MODE == "items" then
-                        VIEW_MODE = "inventories"
-                        selectedSourceIndex = nil
-                        selectedDestIndex = nil
-                    end
-                    break
-                elseif VIEW_MODE == "inventories" then
-                    if param == keys.s then
-                        -- Sキーで転送元選択モード
-                        os.pullEvent("key_up") -- キーが離されるのを待つ
-                        print("\nEnter source inventory number: ")
-                        local input = read()
-                        local num = tonumber(input)
-                        if num and num >= 1 and num <= #inventories then
-                            selectedSourceIndex = num
-                            print("Selected source: " .. inventories[num].name)
-                        end
-                        break
-                    elseif param == keys.d then
-                        -- Dキーで転送先選択モード
-                        os.pullEvent("key_up") -- キーが離されるのを待つ
-                        print("\nEnter destination inventory number: ")
-                        local input = read()
-                        local num = tonumber(input)
-                        if num and num >= 1 and num <= #inventories then
-                            selectedDestIndex = num
-                            print("Selected destination: " .. inventories[num].name)
-                        end
-                        break
-                    elseif param >= keys.one and param <= keys.nine then
-                        -- 数字キー1-9でインベントリを直接選択
-                        local num = param - keys.one + 1
-                        if num >= 1 and num <= #inventories then
-                            if selectedSourceIndex == nil then
-                                selectedSourceIndex = num
-                                print("Selected source: " .. inventories[num].name)
-                            elseif selectedDestIndex == nil then
-                                selectedDestIndex = num
-                                print("Selected destination: " .. inventories[num].name)
-                            end
-
-                            -- 両方選択されたらアイテム表示モードに切り替え
-                            if selectedSourceIndex and selectedDestIndex then
-                                VIEW_MODE = "items"
-                            end
-                            break
-                        end
-                    end
-                elseif VIEW_MODE == "items" then
-                    if param == keys.a or param == keys.zero then
-                        -- 0キーまたはAキーですべてのアイテムを転送
-                        local sourceInv = inventories[selectedSourceIndex]
-                        print("\nTransferring all items...")
-                        local transferCount = 0
-
-                        for slot, item in pairs(sourceInv.contents) do
-                            local success, message = transferItems(sourceInv, inventories[selectedDestIndex], slot,
-                                item.count)
-                            if success then
-                                transferCount = transferCount + 1
-                                print(message)
-                            end
-                        end
-
-                        print("Transferred items from " .. transferCount .. " slots")
-                        sleep(0.5)
-                        break
-                    elseif param >= keys.one and param <= keys.nine then
-                        -- 数字キー1-9でアイテムを直接選択して転送
-                        local numKey = param - keys.one + 1
-                        local sourceInv = inventories[selectedSourceIndex]
-
-                        -- Find the nth item in the inventory
-                        local count = 0
-                        for slot, item in pairs(sourceInv.contents) do
-                            count = count + 1
-                            if count == numKey then
-                                print("\nTransferring " .. (item.displayName or item.name) .. " x" .. item.count)
-                                local success, message = transferItems(sourceInv, inventories[selectedDestIndex], slot,
-                                    item.count)
-                                print(message)
-                                sleep(0.5) -- Pause to show results
-                                break
-                            end
-
-                            if count >= 9 then
-                                break
-                            end -- 最大9アイテムまで
-                        end
-                        break
-                    end
+                -- キーボードイベント
+                if handleKeyEvents(inventories, param) then
+                    shouldRefresh = true
                 end
             elseif event == "mouse_click" then
-                -- マウスクリックでもtransferモードに切り替え
+                -- マウスクリックイベント
                 if handleMouseClick(inventories, param, param2, param3) then
-                    break
+                    shouldRefresh = true
                 end
             end
         end
