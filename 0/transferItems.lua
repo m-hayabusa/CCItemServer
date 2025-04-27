@@ -112,10 +112,6 @@ function transferItems(sourceInventory, destInventory, sourceSlot, count)
         return false, "Destination peripheral not found: " .. destName
     end
 
-    print("Attempting to transfer from " .. sourceName .. " to " .. destName)
-
-    -- ソースから宛先へアイテムをプッシュ
-
     local success, transferred = pcall(source.pushItems, destName, sourceSlot, count)
 
     if success and transferred > 0 then
@@ -125,11 +121,17 @@ function transferItems(sourceInventory, destInventory, sourceSlot, count)
     end
 end
 
+function showAvailableInventories(inventories)
+    print("Available inventories:")
+    for i, inventory in ipairs(inventories) do
+        print(i .. ". " .. inventory.name .. " (" .. inventory.type .. ")")
+    end
+end
+
 -- Function to display transfer interface
 function showTransferInterface(inventories)
     clearScreen()
     print("Item Transfer Interface")
-    print("BackSpace to return to list view")
     print("-----------------------------")
 
     -- Display source selection
@@ -147,64 +149,44 @@ function showTransferInterface(inventories)
             local count = 0
             for slot, item in pairs(sourceInv.contents) do
                 count = count + 1
-                print(count .. ". Slot " .. slot .. ": " .. (item.displayName or item.name) .. " x" .. item.count ..
-                          " [Press " .. count .. " to transfer]")
+                print(count .. ". " .. (item.displayName or item.name) .. " x" .. item.count)
                 if count >= 9 then
                     break
                 end -- Limit display to 9 items for keyboard selection
             end
 
-            print("\nEnter slot number to transfer, or 'a' to transfer all items")
+            print("\nEnter slot number to transfer, or 'a' to transfer all items, or 'q' to quit:")
         else
             print("Source inventory is empty")
+            sleep(2)
+            selectedSourceIndex = nil
+            selectedDestIndex = nil
+            showTransferInterface(inventories)
         end
     else
-        print("Select source (s) and destination (d) inventories first")
-        print("Available inventories:")
-        for i, inventory in ipairs(inventories) do
-            print(i .. ". " .. inventory.name .. " (" .. inventory.type .. ")")
-        end
+        showAvailableInventories(inventories)
     end
 end
 
 -- Function to handle user input for transfer
 function handleTransferInput(inventories)
-    local event, key = os.pullEvent("key")
-
-    -- backspace key to return to list view
-    if key == keys.backspace then
-        VIEW_MODE = "list"
-        return
-    end
-
-    -- 's' key to select source
-    if key == keys.s then
-        print("\nEnter source inventory number: ")
-        local input = read()
-        local num = tonumber(input)
-        if num and num >= 1 and num <= #inventories then
-            selectedSourceIndex = num
-        end
-        return
-    end
-
-    -- 'd' key to select destination
-    if key == keys.d then
-        print("\nEnter destination inventory number: ")
-        local input = read()
-        local num = tonumber(input)
-        if num and num >= 1 and num <= #inventories then
-            selectedDestIndex = num
-        end
-        return
-    end
 
     -- If both source and destination are selected, handle item transfer
     if selectedSourceIndex and selectedDestIndex then
+        write("> ")
+        local input = read()
+
         local sourceInv = inventories[selectedSourceIndex]
 
+        if input == "" or input == "q" then
+            selectedSourceIndex = nil
+            selectedDestIndex = nil
+            VIEW_MODE = "list"
+            return
+        end
+
         -- 'a' key to transfer all items
-        if key == keys.a then
+        if input == "a" or input == "all" then
             print("\nTransferring all items...")
             local transferCount = 0
 
@@ -222,13 +204,7 @@ function handleTransferInput(inventories)
         end
 
         -- Number keys 1-9 to transfer specific items
-        local numKey = nil
-        for i = 1, 9 do
-            if key == keys[tostring(i)] then
-                numKey = i
-                break
-            end
-        end
+        local numKey = tonumber(input)
 
         if numKey then
             -- Find the nth item in the inventory
@@ -241,6 +217,28 @@ function handleTransferInput(inventories)
                     print(message)
                     sleep(2) -- Pause to show results
                     break
+                end
+            end
+        end
+    else
+        local target = selectedSourceIndex == nil and "source" or selectedDestIndex == nil and "destination" or nil
+        if target then
+            write("\nEnter " .. target .. " inventory number: ")
+            local input = read()
+
+            if input == "" or input == "q" then
+                selectedSourceIndex = nil
+                selectedDestIndex = nil
+                VIEW_MODE = "list"
+                return
+            end
+
+            local num = tonumber(input)
+            if num and num >= 1 and num <= #inventories then
+                if target == "source" then
+                    selectedSourceIndex = num
+                elseif target == "destination" then
+                    selectedDestIndex = num
                 end
             end
         end
@@ -257,7 +255,7 @@ end
 
 -- Main function
 function main()
-    redirectToMonitor()
+    -- redirectToMonitor()
 
     print("Scanning for inventories via modem...")
 
@@ -304,18 +302,15 @@ function main()
                 print("")
 
                 for i, inventory in ipairs(inventories) do
-                    print(i .. ". " .. inventory.name .. " (" .. inventory.type .. ")")
-                    print("   Size: " .. inventory.size .. " slots")
-                    print("   Items: " .. inventory.items .. " slots used")
+                    print(i .. ". " .. inventory.name)
 
                     if inventory.items > 0 then
-                        print("   Contents:")
                         local count = 0
                         for slot, item in pairs(inventory.contents) do
                             count = count + 1
                             if count <= 5 then -- Show only first 5 items to avoid clutter
-                                print("     Slot " .. slot .. ": " .. (item.displayName or item.name) .. " x" ..
-                                          item.count)
+                                print("     #" .. slot .. ": \t" .. item.count .. " * " ..
+                                          (item.displayName or item.name))
                             end
                         end
 
@@ -327,7 +322,6 @@ function main()
                     print("")
                 end
             end
-
             -- Check for 'T' key press to switch to transfer mode
             local timer = os.startTimer(REFRESH_INTERVAL)
             while true do
