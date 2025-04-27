@@ -28,16 +28,18 @@ function clearScreen()
     term.setCursorPos(1, 1)
 end
 
--- Function to get all peripherals
+-- Function to get all peripherals via modem only
 function getAllPeripherals()
     local peripheralList = {}
     local names = peripheral.getNames()
 
     for _, name in ipairs(names) do
-        table.insert(peripheralList, {
-            name = name,
-            type = peripheral.getType(name)
-        })
+        if name:find(":") then
+            table.insert(peripheralList, {
+                name = name,
+                type = peripheral.getType(name)
+            })
+        end
     end
 
     return peripheralList
