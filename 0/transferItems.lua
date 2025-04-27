@@ -167,7 +167,7 @@ function showTransferInterface(inventories)
             print("\nEnter slot number (0-" .. math.min(count, 9) .. ") to transfer, or 'q' to quit: ")
         else
             print("Source inventory is empty")
-            sleep(1)
+            sleep(0.5)
             selectedSourceIndex = nil
             selectedDestIndex = nil
             showTransferInterface(inventories)
@@ -249,7 +249,7 @@ function handleKeyboardInput(inventories)
             end
 
             print("Transferred items from " .. transferCount .. " slots")
-            sleep(2)
+            sleep(0.5)
             return
         end
 
@@ -265,7 +265,7 @@ function handleKeyboardInput(inventories)
                     print("\nTransferring " .. (item.displayName or item.name) .. " x" .. item.count)
                     local success, message = transferItems(sourceInv, inventories[selectedDestIndex], slot, item.count)
                     print(message)
-                    sleep(2) -- Pause to show results
+                    sleep(0.5) -- Pause to show results
                     break
                 end
             end
@@ -335,7 +335,7 @@ function handleMouseClick(inventories, button, x, y)
                 end
 
                 print("Transferred items from " .. transferCount .. " slots")
-                sleep(2)
+                sleep(0.5)
                 return true
             end
 
@@ -349,7 +349,7 @@ function handleMouseClick(inventories, button, x, y)
                     print("\nTransferring " .. (item.displayName or item.name) .. " x" .. item.count)
                     local success, message = transferItems(sourceInv, inventories[selectedDestIndex], slot, item.count)
                     print(message)
-                    sleep(1) -- 結果表示のための短い待機
+                    sleep(0.5) -- 結果表示のための短い待機
                     return true
                 end
 
@@ -407,11 +407,7 @@ function main()
                 break
             elseif event == "key" then
                 -- キーボードイベントの処理
-                if param == keys.q then
-                    -- Qキーでプログラム終了
-                    print("Exiting program...")
-                    return
-                elseif param == keys.backspace or param == keys.escape then
+                if param == keys.q or param == keys.backspace or param == keys.escape then
                     -- BackspaceまたはEscキーで前の画面に戻る
                     if VIEW_MODE == "items" then
                         VIEW_MODE = "inventories"
@@ -429,7 +425,6 @@ function main()
                         if num and num >= 1 and num <= #inventories then
                             selectedSourceIndex = num
                             print("Selected source: " .. inventories[num].name)
-                            sleep(1)
                         end
                         break
                     elseif param == keys.d then
@@ -441,7 +436,6 @@ function main()
                         if num and num >= 1 and num <= #inventories then
                             selectedDestIndex = num
                             print("Selected destination: " .. inventories[num].name)
-                            sleep(1)
                         end
                         break
                     elseif param >= keys.one and param <= keys.nine then
@@ -451,11 +445,9 @@ function main()
                             if selectedSourceIndex == nil then
                                 selectedSourceIndex = num
                                 print("Selected source: " .. inventories[num].name)
-                                sleep(1)
                             elseif selectedDestIndex == nil then
                                 selectedDestIndex = num
                                 print("Selected destination: " .. inventories[num].name)
-                                sleep(1)
                             end
 
                             -- 両方選択されたらアイテム表示モードに切り替え
@@ -482,7 +474,7 @@ function main()
                         end
 
                         print("Transferred items from " .. transferCount .. " slots")
-                        sleep(2)
+                        sleep(0.5)
                         break
                     elseif param >= keys.one and param <= keys.nine then
                         -- 数字キー1-9でアイテムを直接選択して転送
@@ -498,7 +490,7 @@ function main()
                                 local success, message = transferItems(sourceInv, inventories[selectedDestIndex], slot,
                                     item.count)
                                 print(message)
-                                sleep(2) -- Pause to show results
+                                sleep(0.5) -- Pause to show results
                                 break
                             end
 
