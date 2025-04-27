@@ -1,7 +1,7 @@
 -- Inventory Scanner and Transfer Tool for ComputerCraft
 -- Lists all inventories accessible via modem and allows item transfer between them
 -- Configuration
-local REFRESH_INTERVAL = 3 -- Refresh interval in seconds
+local REFRESH_INTERVAL = 30 -- Refresh interval in seconds
 local VIEW_MODE = "inventories" -- "inventories" or "items"
 local selectedSourceIndex = nil
 local selectedDestIndex = nil
@@ -14,6 +14,8 @@ local scrollDownPos = nil -- スクロールダウンボタンの位置
 local cachedInventories = {} -- インベントリ情報のキャッシュ
 local inventoryOrder = {} -- インベントリの順序を保持する配列
 local lastRefreshTime = 0 -- 最後にインベントリ情報を更新した時間
+local cachedItemLists = {} -- アイテム一覧のキャッシュ
+local cachedItemListsTime = {} -- アイテム一覧キャッシュの最終更新時間
 
 -- スクロール位置をリセットする関数
 function resetScroll()
@@ -145,6 +147,38 @@ function refreshInventories(peripherals, forceRefresh)
     return inventories
 end
 
+-- アイテム一覧を取得する関数（キャッシュ対応）
+function getItemList(inventory, forceRefresh)
+    local inventoryName = inventory.name
+    local currentTime = os.clock()
+
+    -- キャッシュが有効かチェック
+    if not forceRefresh and cachedItemLists[inventoryName] and
+        (currentTime - (cachedItemListsTime[inventoryName] or 0) < REFRESH_INTERVAL) then
+        return cachedItemLists[inventoryName]
+    end
+
+    -- アイテムリストを作成
+    local itemList = {}
+    local totalItems = 0
+
+    for slot, item in pairs(inventory.contents) do
+        totalItems = totalItems + 1
+        table.insert(itemList, {
+            slot = slot,
+            name = item.name,
+            displayName = item.displayName or item.name,
+            count = item.count
+        })
+    end
+
+    -- 結果をキャッシュ
+    cachedItemLists[inventoryName] = itemList
+    cachedItemListsTime[inventoryName] = currentTime
+
+    return itemList
+end
+
 -- Function to transfer items between inventories
 function transferItems(sourceInventory, destInventory, sourceSlot, count)
     -- 名前が正しい形式かチェック（末尾のコロンを削除）
@@ -171,6 +205,9 @@ function transferItems(sourceInventory, destInventory, sourceSlot, count)
         -- 転送成功後、関連するインベントリのキャッシュを無効化
         cachedInventories[sourceName] = nil
         cachedInventories[destName] = nil
+        -- アイテム一覧のキャッシュも無効化
+        cachedItemLists[sourceName] = nil
+        cachedItemLists[destName] = nil
         return true, "Transferred " .. transferred .. " items"
     else
         return false, "Failed to transfer items"
@@ -196,6 +233,9 @@ function transferAllItems(sourceInventory, destInventory)
     -- 転送後、関連するインベントリのキャッシュを無効化
     cachedInventories[sourceInventory.name] = nil
     cachedInventories[destInventory.name] = nil
+    -- アイテム一覧のキャッシュも無効化
+    cachedItemLists[sourceInventory.name] = nil
+    cachedItemLists[destInventory.name] = nil
 
     return transferCount > 0
 end
@@ -226,11 +266,9 @@ function showTransferInterface(inventories)
 
         print("Source Contents:")
         if sourceInv.items > 0 then
-            -- アイテムの総数を取得
-            local totalItems = 0
-            for _, _ in pairs(sourceInv.contents) do
-                totalItems = totalItems + 1
-            end
+            -- アイテムリストを取得（キャッシュ利用）
+            local itemList = getItemList(sourceInv, false)
+            local totalItems = #itemList
 
             -- スクロールコントロールの表示（アイテムが多い場合）
             if totalItems > ITEMS_PER_PAGE then
@@ -245,7 +283,7 @@ function showTransferInterface(inventories)
                 head = y,
                 tail = y
             }
-            print(" [Transfer All Items] (" .. sourceInv.items .. " items)")
+            print(" 0. [Transfer All Items] (" .. sourceInv.items .. " items)\n")
 
             -- スクロールアップボタン（アイテムが多い場合のみ表示）
             if scrollOffset > 0 then
@@ -254,28 +292,31 @@ function showTransferInterface(inventories)
                     head = y,
                     tail = y
                 }
-                print(" [Scroll Up]")
+                print(" -. [Scroll Up]")
             else
                 scrollUpPos = nil
             end
 
             -- 個別アイテムの表示（スクロールオフセットを考慮）
-            local count = 0
+            local itemPerPage = ITEMS_PER_PAGE - 2
+            if (scrollOffset > 0) then
+                itemPerPage = itemPerPage - 1
+            end
+            if (totalItems - scrollOffset) < ITEMS_PER_PAGE then
+                itemPerPage = itemPerPage - 1
+            end
+
             local displayCount = 0
-            for slot, item in pairs(sourceInv.contents) do
-                count = count + 1
+            for i = scrollOffset + 1, math.min(scrollOffset + itemPerPage, totalItems) do
+                local item = itemList[i]
+                displayCount = displayCount + 1
 
-                -- スクロールオフセットに基づいて表示するアイテムをスキップ
-
-                if count > scrollOffset and displayCount < ITEMS_PER_PAGE - 2 then -- スクロールボタン用に2つ減らす
-                    displayCount = displayCount + 1
-                    local x, y = term.getCursorPos()
-                    item.pos = {
-                        head = y,
-                        tail = y
-                    }
-                    print("  " .. displayCount .. ". " .. (item.displayName or item.name) .. " *" .. item.count)
-                end
+                local x, y = term.getCursorPos()
+                item.pos = {
+                    head = y,
+                    tail = y
+                }
+                print(" " .. displayCount .. ". " .. item.displayName .. " *" .. item.count)
             end
 
             -- スクロールダウンボタン（まだ表示していないアイテムがある場合のみ表示）
@@ -285,7 +326,7 @@ function showTransferInterface(inventories)
                     head = y,
                     tail = y
                 }
-                print(" [Scroll Down]")
+                print(" +. [Scroll Down]")
             else
                 scrollDownPos = nil
             end
@@ -293,7 +334,7 @@ function showTransferInterface(inventories)
             VIEW_MODE = "items"
 
             -- 入力プロンプトの表示
-
+            -- term.setCursorPos(1, ({term.getSize()})[1] - 3)
             write("\nEnter slot number to transfer, or 'q' to quit: ")
         else
             print("Source inventory is empty")
@@ -306,52 +347,6 @@ function showTransferInterface(inventories)
         inventories = printInventories(inventories, 2)
     end
 
-    return inventories
-end
-
--- Function to redirect output to a monitor if available
-function redirectToMonitor()
-    local monitor = peripheral.find("monitor")
-    if monitor then
-        term.redirect(monitor)
-        monitor.clear()
-        monitor.setCursorPos(1, 1)
-        monitor.setTextScale(0.5)
-        return true
-    end
-    return false
-end
-
--- Function to print inventory list with items
-function printInventories(inventories, limit)
-    for i, inventory in ipairs(inventories) do
-        inventory.pos = {
-            head = nil,
-            tail = nil
-        }
-        local x, y = term.getCursorPos()
-        inventory.pos.head = y
-        print(i .. ". " .. inventory.name)
-
-        if inventory.items > 0 then
-            local count = 0
-            for slot, item in pairs(inventory.contents) do
-                count = count + 1
-                if limit and count <= limit then -- Show only first 5 items to avoid clutter
-                    print("     #" .. count .. ": \t" .. item.count .. " * " .. (item.displayName or item.name))
-                end
-            end
-
-            if limit and count > limit then
-                print("     ... and " .. (count - limit) .. " more items")
-            end
-        end
-        local x, y = term.getCursorPos()
-        inventory.pos.tail = y
-
-        print("")
-    end
-    VIEW_MODE = "inventories"
     return inventories
 end
 
@@ -415,26 +410,20 @@ function handleKeyEvents(inventories, key)
     elseif VIEW_MODE == "items" then
         -- スクロール処理
         if key == keys.up then
-
             -- 上キーでページアップ（PgUp相当）
             local sourceInv = inventories[selectedSourceIndex]
-            local totalItems = 0
-            for _, _ in pairs(sourceInv.contents) do
-                totalItems = totalItems + 1
-            end
+            local itemList = getItemList(sourceInv, false)
+            local totalItems = #itemList
 
             scrollOffset = math.max(0, scrollOffset - (ITEMS_PER_PAGE - 2))
             return true
-
         elseif key == keys.down then
             -- 下キーでページダウン（PgDn相当）
             local sourceInv = inventories[selectedSourceIndex]
-            local totalItems = 0
-            for _, _ in pairs(sourceInv.contents) do
-                totalItems = totalItems + 1
-            end
+            local itemList = getItemList(sourceInv, false)
+            local totalItems = #itemList
 
-            scrollOffset = math.min(totalItems - 1, scrollOffset + (ITEMS_PER_PAGE - 2))
+            scrollOffset = math.min(totalItems - (ITEMS_PER_PAGE - 2), scrollOffset + (ITEMS_PER_PAGE - 2))
             return true
         elseif key == keys.a or key == keys.zero then
             -- 0キーまたはAキーですべてのアイテムを転送
@@ -453,43 +442,30 @@ function handleKeyEvents(inventories, key)
 
             -- 最後のアイテムがスクロールダウンボタンの場合
             local sourceInv = inventories[selectedSourceIndex]
-
-            local totalItems = 0
-            for _, _ in pairs(sourceInv.contents) do
-                totalItems = totalItems + 1
-            end
+            local itemList = getItemList(sourceInv, false)
+            local totalItems = #itemList
 
             if numKey == ITEMS_PER_PAGE - 2 and scrollDownPos then
-                scrollOffset = math.min(totalItems - 1, scrollOffset + (ITEMS_PER_PAGE - 2))
+                scrollOffset = math.min(totalItems - (ITEMS_PER_PAGE - 2), scrollOffset + (ITEMS_PER_PAGE - 2))
                 return true
             end
 
             -- 通常のアイテム選択処理
             local sourceInv = inventories[selectedSourceIndex]
-            local count = 0
-            local displayCount = 0
-            local selectedSlot = nil
+            local itemList = getItemList(sourceInv, false)
 
-            for slot, item in pairs(sourceInv.contents) do
-                count = count + 1
+            -- 選択されたアイテムのインデックスを計算
+            local selectedIndex = scrollOffset + numKey
 
-                if count > scrollOffset and displayCount < ITEMS_PER_PAGE - 2 then
-                    displayCount = displayCount + 1
+            if selectedIndex <= #itemList then
+                local item = itemList[selectedIndex]
+                print("\nTransferring " .. item.displayName .. " x" .. item.count)
 
-                    if displayCount == numKey then
-                        selectedSlot = slot
-                        print("\nTransferring " .. (item.displayName or item.name) .. " x" .. item.count)
-
-                        local success, message = transferItems(sourceInv, inventories[selectedDestIndex], slot,
-                            item.count)
-                        print(message)
-                        sleep(0.5) -- Pause to show results
-                        break
-                    end
-                end
+                local success, message = transferItems(sourceInv, inventories[selectedDestIndex], item.slot, item.count)
+                print(message)
+                sleep(0.5) -- Pause to show results
+                return true
             end
-
-            return selectedSlot ~= nil
         end
     end
 
@@ -524,7 +500,6 @@ function handleMouseClick(inventories, button, x, y)
                 end
             end
         end
-
         -- VIEW_MODEがitemsの場合（アイテムリスト表示時）
     elseif VIEW_MODE == "items" then
         -- 両方のインベントリが選択されている場合のみ
@@ -533,7 +508,6 @@ function handleMouseClick(inventories, button, x, y)
 
             -- 「すべてのアイテム」行がクリックされたかチェック
             if transferAllPos and y == transferAllPos.head then
-
                 transferAllItems(sourceInv, inventories[selectedDestIndex])
                 return true
             end
@@ -546,41 +520,81 @@ function handleMouseClick(inventories, button, x, y)
 
             -- スクロールダウンボタンがクリックされたかチェック
             if scrollDownPos and y == scrollDownPos.head then
-                local totalItems = 0
-                for _, _ in pairs(sourceInv.contents) do
-                    totalItems = totalItems + 1
-                end
+                local itemList = getItemList(sourceInv, false)
+                local totalItems = #itemList
 
-                scrollOffset = math.min(totalItems - 1, scrollOffset + (ITEMS_PER_PAGE - 2))
+                scrollOffset = math.min(totalItems - (ITEMS_PER_PAGE - 2), scrollOffset + (ITEMS_PER_PAGE - 2))
                 return true
             end
 
             -- 個別アイテムリストの位置を特定
-            local count = 0
-            local displayCount = 0
+            local itemList = getItemList(sourceInv, false)
 
-            for slot, item in pairs(sourceInv.contents) do
-                count = count + 1
+            -- 表示されているアイテムをチェック
+            for i = 1, math.min(ITEMS_PER_PAGE - 2, #itemList - scrollOffset) do
+                local itemIndex = scrollOffset + i
+                local item = itemList[itemIndex]
 
-                if count > scrollOffset and displayCount < ITEMS_PER_PAGE - 2 then
-                    displayCount = displayCount + 1
-
-                    -- アイテム行の位置を確認
-                    if item.pos and item.pos.head <= y and y <= item.pos.tail then
-                        print("\nTransferring " .. (item.displayName or item.name) .. " x" .. item.count)
-
-                        local success, message = transferItems(sourceInv, inventories[selectedDestIndex], slot,
-                            item.count)
-                        print(message)
-                        sleep(0.5) -- 結果表示のための短い待機
-                        return true
-                    end
+                -- アイテム行の位置を確認
+                if item.pos and item.pos.head <= y and y <= item.pos.tail then
+                    print("\nTransferring " .. item.displayName .. " x" .. item.count)
+                    local success, message = transferItems(sourceInv, inventories[selectedDestIndex], item.slot,
+                        item.count)
+                    print(message)
+                    sleep(0.5) -- 結果表示のための短い待機
+                    return true
                 end
             end
         end
     end
 
     return false
+end
+
+-- Function to redirect output to a monitor if available
+function redirectToMonitor()
+    local monitor = peripheral.find("monitor")
+    if monitor then
+        term.redirect(monitor)
+        monitor.clear()
+        monitor.setCursorPos(1, 1)
+        monitor.setTextScale(0.5)
+        return true
+    end
+    return false
+end
+
+-- Function to print inventory list with items
+function printInventories(inventories, limit)
+    for i, inventory in ipairs(inventories) do
+        inventory.pos = {
+            head = nil,
+            tail = nil
+        }
+        local x, y = term.getCursorPos()
+        inventory.pos.head = y
+        print(i .. ". " .. inventory.name)
+
+        if inventory.items > 0 then
+            local count = 0
+            for slot, item in pairs(inventory.contents) do
+                count = count + 1
+                if limit and count <= limit then -- Show only first 5 items to avoid clutter
+                    print("     #" .. count .. ": \t" .. item.count .. " * " .. (item.displayName or item.name))
+                end
+            end
+
+            if limit and count > limit then
+                print("     ... and " .. (count - limit) .. " more items")
+            end
+        end
+        local x, y = term.getCursorPos()
+        inventory.pos.tail = y
+
+        print("")
+    end
+    VIEW_MODE = "inventories"
+    return inventories
 end
 
 -- Main function
@@ -652,6 +666,10 @@ function main()
             elseif event == "mouse_scroll" then
                 -- マウスホイールイベント（スクロールのみなので強制更新不要）
                 if VIEW_MODE == "items" then
+                    local sourceInv = inventories[selectedSourceIndex]
+                    local itemList = getItemList(sourceInv, false)
+                    local totalItems = #itemList
+
                     if param > 0 then
                         -- 上にスクロール
                         if scrollOffset > 0 then
@@ -660,14 +678,8 @@ function main()
                         end
                     else
                         -- 下にスクロール
-                        local sourceInv = inventories[selectedSourceIndex]
-                        local totalItems = 0
-                        for _, _ in pairs(sourceInv.contents) do
-                            totalItems = totalItems + 1
-                        end
-
                         if scrollOffset < totalItems - (ITEMS_PER_PAGE - 2) then
-                            scrollOffset = math.min(totalItems - 1, scrollOffset + 1)
+                            scrollOffset = math.min(totalItems - (ITEMS_PER_PAGE - 2), scrollOffset + 1)
                             shouldRefresh = true
                         end
                     end
@@ -679,6 +691,8 @@ function main()
         if forceRefresh then
             -- キャッシュをクリアして次回の更新で強制的に再取得
             cachedInventories = {}
+            cachedItemLists = {}
+            cachedItemListsTime = {}
         end
     end
 end
