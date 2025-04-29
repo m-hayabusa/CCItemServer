@@ -66,7 +66,6 @@ function sendRequest(requestType, params)
 
     -- Send the request
     modem.transmit(SERVER_CHANNEL, CLIENT_CHANNEL, request)
-    print("Request sent: " .. requestType)
 
     -- Wait for response with timeout
     local timer = os.startTimer(SERVER_TIMEOUT)
