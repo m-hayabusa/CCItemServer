@@ -370,6 +370,7 @@ function handleKeyEvents(key)
             selectedSourceIndex = nil
             selectedDestIndex = nil
             resetScroll() -- スクロール位置をリセット
+            currentItems = {} -- アイテムリストをクリア
         end
         return true
     end
@@ -385,6 +386,7 @@ function handleKeyEvents(key)
             local num = tonumber(input)
             if num and num >= 1 and num <= #inventories then
                 selectedSourceIndex = num
+                currentItems = {} -- アイテムリストをクリア
                 print("Selected source: " .. (inventories[num].displayName or inventories[num].name))
             end
             return true
@@ -491,6 +493,7 @@ function handleMouseClick(button, x, y)
         selectedDestIndex = nil
         VIEW_MODE = "inventories"
         resetScroll() -- スクロール位置をリセット
+        currentItems = {} -- アイテムリストをクリア
         return true
     end
 
@@ -502,6 +505,7 @@ function handleMouseClick(button, x, y)
             if inventory.pos.head <= y and y <= inventory.pos.tail then
                 if button == 1 then -- 左クリック = source
                     selectedSourceIndex = i
+                    currentItems = {} -- アイテムリストをクリア
                     print("Selected source: " .. (inventory.displayName or inventory.name))
                     return true
                 elseif button == 2 then -- 右クリック = destination
