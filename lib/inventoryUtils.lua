@@ -155,6 +155,12 @@ function inventoryUtils.transferAllItems(sourceInventory, destInventory)
     local maxRetries = 2
     local remainingSlots = {}
 
+    -- ソースインベントリが空の場合は成功として扱う
+    if sourceInventory.items == 0 then
+        print("Source inventory is empty. Nothing to transfer.")
+        return true
+    end
+
     -- 最初に転送するスロットのリストを作成
     for slot, _ in pairs(sourceInventory.contents) do
         table.insert(remainingSlots, slot)
