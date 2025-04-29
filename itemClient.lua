@@ -1,5 +1,8 @@
 -- Item Management Client
 -- Connects to item server and provides user interface for inventory management
+-- ライブラリのインポート
+local request = require("lib.request")
+
 -- Configuration
 local SERVER_CHANNEL = 137 -- Server communication channel
 local CLIENT_CHANNEL = os.getComputerID() + 5000 -- Unique client channel
@@ -20,15 +23,19 @@ local inventories = {}
 local currentItems = {}
 local lastActivityTime = os.clock() -- 最後の操作時間を記録
 
--- Initialize modem
-local modem = peripheral.find("modem")
-if not modem then
-    print("No modem found! Please attach a modem.")
+-- リクエストライブラリの初期化
+local success, message = request.init({
+    serverChannel = SERVER_CHANNEL,
+    clientChannel = CLIENT_CHANNEL,
+    serverTimeout = SERVER_TIMEOUT
+})
+
+if not success then
+    print(message)
     return
 end
 
-modem.open(CLIENT_CHANNEL)
-print("Client started on channel " .. CLIENT_CHANNEL)
+print(message)
 
 -- 操作があったときに最終活動時間を更新する関数
 function updateActivityTime()
@@ -50,50 +57,6 @@ function checkInactivity()
     return false -- 継続する
 end
 
--- Function to send request to server and wait for response
-function sendRequest(requestType, params)
-    -- Create request message
-    local request = {
-        type = requestType
-    }
-
-    -- Add any additional parameters
-    if params then
-        for k, v in pairs(params) do
-            request[k] = v
-        end
-    end
-
-    -- Send the request
-    modem.transmit(SERVER_CHANNEL, CLIENT_CHANNEL, request)
-    local x, y = term.getCursorPos()
-    write("Request sent: " .. requestType)
-
-    -- Wait for response with timeout
-    local timer = os.startTimer(SERVER_TIMEOUT)
-    while true do
-        local event, param1, param2, param3, message, distance = os.pullEvent()
-
-        if event == "modem_message" and param2 == CLIENT_CHANNEL and param3 == SERVER_CHANNEL then
-            term.clearLine()
-            term.setCursorPos(x, y)
-
-            -- Response received
-            updateActivityTime() -- サーバーからの応答も操作とみなす
-            return message
-        elseif event == "timer" and param1 == timer then
-            term.clearLine()
-            term.setCursorPos(x, y)
-
-            -- Timeout
-            return {
-                success = false,
-                message = "Server timeout"
-            }
-        end
-    end
-end
-
 -- Function to clear the screen
 function clearScreen()
     term.clear()
@@ -107,9 +70,7 @@ end
 
 -- Function to get all inventories from server
 function getInventories(forceRefresh)
-    local response = sendRequest("GET_INVENTORIES", {
-        forceRefresh = forceRefresh
-    })
+    local response = request.getInventories(forceRefresh)
 
     if response.success then
         inventories = response.data
@@ -123,10 +84,7 @@ end
 
 -- Function to get items from an inventory
 function getItems(inventoryName, forceRefresh)
-    local response = sendRequest("GET_ITEMS", {
-        inventory = inventoryName,
-        forceRefresh = forceRefresh
-    })
+    local response = request.getItems(inventoryName, forceRefresh)
 
     if response.success then
         currentItems = response.data
@@ -140,12 +98,7 @@ end
 
 -- Function to transfer an item
 function transferItem(sourceInv, destInv, slot, count)
-    local response = sendRequest("TRANSFER_ITEM", {
-        source = sourceInv,
-        destination = destInv,
-        slot = slot,
-        count = count
-    })
+    local response = request.transferItem(sourceInv, destInv, slot, count)
 
     print(response.message)
     return response.success
@@ -153,10 +106,7 @@ end
 
 -- Function to transfer all items
 function transferAllItems(sourceInv, destInv)
-    local response = sendRequest("TRANSFER_ALL", {
-        source = sourceInv,
-        destination = destInv
-    })
+    local response = request.transferAllItems(sourceInv, destInv)
 
     print(response.message)
     return response.success
@@ -350,10 +300,7 @@ function editInventoryName(inventoryIndex)
 
     if newName and newName ~= "" then
         -- サーバーに名前変更リクエストを送信
-        local response = sendRequest("SET_INVENTORY_NAME", {
-            inventoryId = inventory.name,
-            displayName = newName
-        })
+        local response = request.setInventoryName(inventory.name, newName)
 
         if response.success then
             inventory.displayName = newName
@@ -622,9 +569,7 @@ end
 function main()
     -- Check if server is available
     print("Connecting to item server...")
-    local response = sendRequest("GET_INVENTORIES", {
-        forceRefresh = true
-    })
+    local response = request.getInventories(true)
 
     if not response.success then
         print("Could not connect to server: " .. response.message)
