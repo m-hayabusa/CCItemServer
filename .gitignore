@@ -1,2 +1,3 @@
-inventory_names.json
+*.json
 *.log
+*.conf

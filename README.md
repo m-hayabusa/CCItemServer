@@ -14,7 +14,7 @@ ComputerCraftのためのアイテム管理システム。複数のインベン�
 
 ## 使用方法
 
-### サーバーの起動
+### サーバー
 
 サーバーコンピュータで以下のコマンドを実行します:
 
@@ -27,7 +27,7 @@ startup.luaに記載しておくと自動で起動できます:
 shell.run("CCItemServer/itemServer")
 ```
 
-### クライアントの起動
+### クライアント
 
 クライアントコンピュータで以下のコマンドを実行します:
 
@@ -41,16 +41,21 @@ shell.run("CCItemServer/itemClient")
 os.shutdown()
 ```
 
-### 自動転送の設定
+### 自動転送
 
-自動転送を設定するには、`autoTransfer.lua`を編集して転送元と転送先のインベントリを指定します:
+自動転送を設定するには、初回実行時に生成される`autoTransfer.conf`を編集して転送元と転送先のインベントリを指定します:
 
-```lua
-local SOURCE_INVENTORY = "minecraft:barrel_4" -- 転送元インベントリ名
-local DEST_INVENTORY = "minecraft:barrel_5" -- 転送先インベントリ名
-local TRANSFER_INTERVAL = 60 -- 転送間隔（秒）
+```properties
+{
+  transfer_interval = 60,                  // 転送間隔（秒）
+  dest_inventory = "minecraft:barrel_0",   // 転送先インベントリのID
+  source_inventory = "minecraft:barrel_1", // 転送元インベントリのID
+}
 ```
-その後、以下のコマンドで自動転送を開始します:
+
+インベントリのIDは `peripherals` コマンドで確認するか、itemClientのインベントリ一覧 `1. barrel_1 (minecraft:barrel_0)` のような表示の `minecraft:barrel_0` の部分です。
+
+設定後、以下のコマンドで自動転送を開始します:
 
 ```
 ./CCItemServer/autoTransfer
@@ -59,22 +64,4 @@ local TRANSFER_INTERVAL = 60 -- 転送間隔（秒）
 startup.luaに記載しておくと自動で起動できます:
 ```lua
 shell.run("CCItemServer/autoTransfer")
-```
-
-## 設定
-
-各ファイルの先頭にある設定変数を編集することで、動作をカスタマイズできます:
-
-### サーバー設定 (itemServer.lua)
-
-```lua
-local SERVER_CHANNEL = 137 -- 通信チャンネル
-local REFRESH_INTERVAL = 30 -- インベントリ更新間隔（秒）
-```
-
-### クライアント設定 (itemClient.lua)
-
-```lua
-local SERVER_CHANNEL = 137 -- 通信チャンネル
-local INACTIVITY_TIMEOUT = 300 -- 非アクティブタイムアウト（秒）
 ```

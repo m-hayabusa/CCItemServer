@@ -3,12 +3,48 @@
 -- Load libraries
 local request = require("lib.request")
 
--- Configuration
-local SOURCE_INVENTORY = "minecraft:barrel_0" -- Source inventory name (change to actual name)
-local DEST_INVENTORY = "minecraft:barrel_1" -- Destination inventory name (change to actual name)
-local TRANSFER_INTERVAL = 60 -- Transfer interval in seconds
+local CONFIG_FILE = "autoTransfer.conf"
 local SERVER_CHANNEL = 137 -- Server communication channel
 local CLIENT_CHANNEL = os.getComputerID() + 5000 -- Unique client channel
+
+-- Default configuration
+local config = {
+    source_inventory = "", -- Source inventory name (change to actual name)
+    dest_inventory = "", -- Destination inventory name (change to actual name)
+    transfer_interval = 60 -- Transfer interval in seconds
+}
+
+-- Load configuration from file
+function loadConfig()
+    if fs.exists(CONFIG_FILE) then
+        local file = fs.open(CONFIG_FILE, "r")
+        if file then
+            local content = file.readAll()
+            file.close()
+
+            local loadedConfig = textutils.unserialise(content)
+            if loadedConfig then
+                -- Override existing config with loaded values
+                for k, v in pairs(loadedConfig) do
+                    config[k] = v
+                end
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-- Save configuration to file
+function saveConfig()
+    local file = fs.open(CONFIG_FILE, "w")
+    if file then
+        file.write(textutils.serialise(config)) -- pretty print
+        file.close()
+        return true
+    end
+    return false
+end
 
 function logMessage(message)
     local currentTime = os.time("local")
@@ -38,16 +74,32 @@ end
 
 -- Main process
 function main()
+    -- Load configuration
+    local configLoaded = loadConfig()
+
+    -- Check if config is missing or incomplete
+    if not configLoaded or config.source_inventory == "" or config.dest_inventory == "" then
+        logMessage("Configuration file missing or incomplete.")
+
+        -- Save default configuration
+        saveConfig()
+
+        logMessage("Default configuration saved to " .. CONFIG_FILE)
+        logMessage("Please edit this file to set source_inventory and dest_inventory.")
+        logMessage("Run this program again after configuration is complete.")
+        return
+    end
+
     logMessage("Starting automatic transfer")
-    logMessage("Source: " .. SOURCE_INVENTORY)
-    logMessage("Destination: " .. DEST_INVENTORY)
-    logMessage("Transfer interval: " .. TRANSFER_INTERVAL .. " seconds")
+    logMessage("Source: " .. config.source_inventory)
+    logMessage("Destination: " .. config.dest_inventory)
+    logMessage("Transfer interval: " .. config.transfer_interval .. " seconds")
     logMessage("Press any key to launch the interactive client")
     logMessage("Redstone signal will trigger transfer")
 
     -- Initialize request library
     local success, message = request.init({
-        serverChannel = SERVER_CHANNEL,
+        serverChannel = config.server_channel,
         clientChannel = CLIENT_CHANNEL
     })
 
@@ -58,40 +110,40 @@ function main()
 
     logMessage(message)
 
-    -- レッドストーンの初期状態を記録
+    -- Record initial redstone states
     local lastRedstoneStates = getRedstoneStates()
 
     -- Main loop
     while true do
-        local timer = os.startTimer(TRANSFER_INTERVAL)
-        logMessage("Waiting " .. TRANSFER_INTERVAL .. " seconds until next transfer")
+        local timer = os.startTimer(config.transfer_interval)
+        logMessage("Waiting " .. config.transfer_interval .. " seconds until next transfer")
         logMessage("Press any key to launch the interactive client")
 
-        -- イベントを待機
+        -- Wait for events
         while true do
             local event, param = os.pullEvent()
 
             if event == "key" then
-                -- キー入力があった場合、itemClientを起動
+                -- Launch itemClient on key press
                 logMessage("Key pressed, launching itemClient...")
                 shell.run("./itemClient")
                 logMessage("itemClient exited.")
             elseif event == "timer" and param == timer then
-                -- タイマーイベント：転送処理を実行
+                -- Timer event: execute transfer
                 logMessage("Timer triggered, starting transfer...")
                 break
             elseif event == "redstone" then
-                -- レッドストーン信号の変化を検出
+                -- Detect redstone signal changes
                 local currentStates = getRedstoneStates()
                 local changed, side = checkRedstoneRisingEdge(lastRedstoneStates, currentStates)
 
-                -- LOWからHIGHに変化した面がある場合、処理を実行
+                -- Execute if there's a rising edge
                 if changed then
                     logMessage("Triggered redstone on " .. side .. ", starting transfer...")
                     break
                 end
 
-                -- 状態を更新
+                -- Update states
                 lastRedstoneStates = currentStates
             end
         end
@@ -99,7 +151,7 @@ function main()
         logMessage("Starting transfer cycle...")
 
         -- Transfer all items
-        local transferResponse = request.transferAllItems(SOURCE_INVENTORY, DEST_INVENTORY)
+        local transferResponse = request.transferAllItems(config.source_inventory, config.dest_inventory)
 
         if transferResponse.success then
             logMessage("Transfer completed successfully")
