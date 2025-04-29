@@ -13,7 +13,7 @@ local selectedDestIndex = nil
 local backButtonPos = nil
 local transferAllPos = nil
 local scrollOffset = 0
-local ITEMS_PER_PAGE = 9
+local ITEMS_PER_PAGE = 8
 local scrollUpPos = nil
 local scrollDownPos = nil
 local inventories = {}
@@ -256,8 +256,21 @@ function showTransferInterface()
             }
             print(" 0. [Transfer All Items] (" .. #currentItems .. " items)\n")
 
-            -- スクロールアップボタン（アイテムが多い場合のみ表示）
-            if scrollOffset > 0 then
+            local itemPerPage = ITEMS_PER_PAGE
+
+            local showScrollUp = scrollOffset > 0
+            if (showScrollUp) then
+                itemPerPage = itemPerPage - 1
+            end
+
+            local showScrollDown = scrollOffset < #currentItems - itemPerPage
+
+            if showScrollDown then
+                itemPerPage = itemPerPage - 1
+            end
+
+            -- スクロールアップボタン
+            if showScrollUp then
                 local x, y = term.getCursorPos()
                 scrollUpPos = {
                     head = y,
@@ -268,15 +281,7 @@ function showTransferInterface()
                 scrollUpPos = nil
             end
 
-            -- 個別アイテムの表示（スクロールオフセットを考慮）
-            local itemPerPage = ITEMS_PER_PAGE - 2
-            if (scrollOffset > 0) then
-                itemPerPage = itemPerPage - 1
-            end
-            if (#currentItems - scrollOffset) < ITEMS_PER_PAGE then
-                itemPerPage = itemPerPage - 1
-            end
-
+            -- 個別アイテムの表示
             local displayCount = 0
             for i = scrollOffset + 1, math.min(scrollOffset + itemPerPage, #currentItems) do
                 local item = currentItems[i]
@@ -290,8 +295,8 @@ function showTransferInterface()
                 print(" " .. displayCount .. ". " .. item.displayName .. " *" .. item.count)
             end
 
-            -- スクロールダウンボタン（まだ表示していないアイテムがある場合のみ表示）
-            if scrollOffset + ITEMS_PER_PAGE - 2 < #currentItems then
+            -- スクロールダウンボタン
+            if showScrollDown then
                 local x, y = term.getCursorPos()
                 scrollDownPos = {
                     head = y,
