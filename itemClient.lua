@@ -66,6 +66,8 @@ function sendRequest(requestType, params)
 
     -- Send the request
     modem.transmit(SERVER_CHANNEL, CLIENT_CHANNEL, request)
+    local x, y = term.getCursorPos()
+    write("Request sent: " .. requestType)
 
     -- Wait for response with timeout
     local timer = os.startTimer(SERVER_TIMEOUT)
@@ -73,10 +75,16 @@ function sendRequest(requestType, params)
         local event, param1, param2, param3, message, distance = os.pullEvent()
 
         if event == "modem_message" and param2 == CLIENT_CHANNEL and param3 == SERVER_CHANNEL then
+            term.clearLine()
+            term.setCursorPos(x, y)
+
             -- Response received
             updateActivityTime() -- サーバーからの応答も操作とみなす
             return message
         elseif event == "timer" and param1 == timer then
+            term.clearLine()
+            term.setCursorPos(x, y)
+
             -- Timeout
             return {
                 success = false,
@@ -140,7 +148,6 @@ function transferItem(sourceInv, destInv, slot, count)
     })
 
     print(response.message)
-    sleep(1)
     return response.success
 end
 
@@ -152,7 +159,6 @@ function transferAllItems(sourceInv, destInv)
     })
 
     print(response.message)
-    sleep(1)
     return response.success
 end
 
@@ -355,7 +361,7 @@ function editInventoryName(inventoryIndex)
         else
             print("Failed to update name: " .. response.message)
         end
-        sleep(1)
+        sleep(0.5)
         return true
     end
 
@@ -557,7 +563,6 @@ function handleMouseClick(button, x, y)
                     transferItem(inventories[selectedSourceIndex].name, inventories[selectedDestIndex].name, item.slot,
                         item.count)
                     getItems(inventories[selectedSourceIndex].name, true)
-                    sleep(0.5) -- 結果表示のための短い待機
                     return true
                 end
             end
@@ -629,7 +634,6 @@ function main()
 
     inventories = response.data
     print("Connected to server. Found " .. #inventories .. " inventories.")
-    sleep(1)
 
     -- 可能であればモニターにリダイレクト
     redirectToMonitor()

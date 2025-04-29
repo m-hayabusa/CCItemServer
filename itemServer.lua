@@ -10,15 +10,22 @@ local inventoryCache = {} -- Cache of inventory information
 local lastRefreshTime = 0 -- Time of last inventory refresh
 local inventoryNames = {} -- インベントリIDと表示名のマッピング
 
+-- ログ出力用の関数を追加
+function logMessage(message)
+    local currentTime = os.time("local")
+    local formattedTime = textutils.formatTime(currentTime, true)
+    print("[" .. formattedTime .. "] " .. message)
+end
+
 -- Initialize modem
 local modem = peripheral.find("modem")
 if not modem then
-    print("No modem found! Please attach a modem.")
+    logMessage("No modem found! Please attach a modem.")
     return
 end
 
 modem.open(SERVER_CHANNEL)
-print("Server started on channel " .. SERVER_CHANNEL)
+logMessage("Server started on channel " .. SERVER_CHANNEL)
 
 -- インベントリ名マッピングをJSONファイルから読み込む
 function loadInventoryNames()
@@ -29,15 +36,13 @@ function loadInventoryNames()
 
         local success, result = pcall(textutils.unserializeJSON, content)
         if success then
-            print()
-            inventoryNames = result
-            print("Loaded inventory name mappings\n" .. textutils.serialize(result))
+            logMessage("Loaded inventory name mappings\n" .. textutils.serialize(result))
         else
-            print("Error loading inventory names: " .. result)
+            logMessage("Error loading inventory names: " .. result)
             inventoryNames = {}
         end
     else
-        print("No inventory name mappings found, using default names")
+        logMessage("No inventory name mappings found, using default names")
         inventoryNames = {}
     end
 end
@@ -47,7 +52,7 @@ function saveInventoryNames()
     local file = fs.open(INVENTORY_NAMES_FILE, "w")
     file.write(textutils.serializeJSON(inventoryNames))
     file.close()
-    print("Saved inventory name mappings")
+    logMessage("Saved inventory name mappings")
 end
 
 -- インベントリIDから表示名を取得する（なければデフォルト名を生成）
@@ -93,7 +98,7 @@ function refreshInventories(forceRefresh)
         return inventoryCache
     end
 
-    print("Refreshing inventory data...")
+    logMessage("Refreshing inventory data...")
     local peripherals = peripheral.getNames()
     local inventories = {}
 
@@ -270,18 +275,18 @@ function handleRequest(sender, message)
 end
 
 -- Main server loop
-print("Waiting for client requests...")
+logMessage("Waiting for client requests...")
 while true do
     local event, side, channel, replyChannel, message, distance = os.pullEvent("modem_message")
 
     if channel == SERVER_CHANNEL then
-        print("Received request from " .. replyChannel)
+        logMessage("Received request from " .. replyChannel)
 
         -- Process the request
         local response = handleRequest(replyChannel, message)
 
         -- Send the response back
         modem.transmit(replyChannel, SERVER_CHANNEL, response)
-        print("Response sent")
+        logMessage("Response sent")
     end
 end
