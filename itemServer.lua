@@ -10,7 +10,6 @@ local inventoryCache = {} -- Cache of inventory information
 local lastRefreshTime = 0 -- Time of last inventory refresh
 local inventoryNames = {} -- インベントリIDと表示名のマッピング
 
--- ログ出力用の関数を追加
 function logMessage(message)
     local currentTime = os.time("local")
     local formattedTime = textutils.formatTime(currentTime, true)
