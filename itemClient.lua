@@ -320,14 +320,17 @@ function handleKeyEvents(key)
     updateActivityTime() -- キー操作があったことを記録
 
     -- 共通のキー処理
-    if key == keys.q or key == keys.backspace or key == keys.escape then
-        -- BackspaceまたはEscキーで前の画面に戻る
+    if key == keys.q then
+        -- Qキーで前の画面に戻る
         if VIEW_MODE == "items" then
             VIEW_MODE = "inventories"
             selectedSourceIndex = nil
             selectedDestIndex = nil
             resetScroll() -- スクロール位置をリセット
             currentItems = {} -- アイテムリストをクリア
+        elseif VIEW_MODE == "inventories" then
+            os.pullEvent("key_up") -- キーが離されるのを待つ
+            return false, true
         end
         return true
     end
@@ -618,7 +621,13 @@ function main()
                 end
             elseif event == "key" then
                 -- キーボードイベント
-                if handleKeyEvents(param) then
+                local refreshRequired, exitProgram = handleKeyEvents(param)
+                if exitProgram then
+                    -- プログラム終了
+                    print("Exiting program.")
+                    return
+                end
+                if refreshRequired then
                     shouldRefresh = true
                     -- アイテム転送操作の場合のみ強制更新
                     if VIEW_MODE == "items" and
