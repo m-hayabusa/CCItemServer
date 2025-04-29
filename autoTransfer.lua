@@ -22,6 +22,7 @@ function main()
     logMessage("Source: " .. SOURCE_INVENTORY)
     logMessage("Destination: " .. DEST_INVENTORY)
     logMessage("Transfer interval: " .. TRANSFER_INTERVAL .. " seconds")
+    logMessage("Press any key to launch the interactive client")
 
     -- Initialize request library
     local success, message = request.init({
@@ -50,7 +51,22 @@ function main()
         end
 
         logMessage("Waiting " .. TRANSFER_INTERVAL .. " seconds until next transfer")
-        sleep(TRANSFER_INTERVAL)
+        logMessage("Press any key to launch the interactive client")
+
+        -- イベントを待機
+        while true do
+            local event, param = os.pullEvent()
+
+            if event == "key" then
+                -- キー入力があった場合、itemClientを起動
+                logMessage("Key pressed, launching itemClient...")
+                logMessage("launch ItemClient...")
+                shell.run("./itemClient")
+                logMessage("itemClient exited.")
+            elseif event == "timer" then
+                break
+            end
+        end
     end
 end
 
